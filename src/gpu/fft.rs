@@ -7,6 +7,7 @@ use log::info;
 use ocl::{Buffer, MemFlags, ProQue};
 use paired::Engine;
 use std::cmp;
+use std::env;
 
 // NOTE: Please read `structs.rs` for an explanation for unsafe transmutes of this code!
 
@@ -39,7 +40,19 @@ where
         if devices.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));
         }
-        let device = devices[0]; // Select the first device for FFT
+
+        let gpu_num = GPU_NVIDIA_DEVICES.len();
+        let mut use_gpu_index = 0;
+        if env::var("LOTUS_USE_GPU_INDEX").is_ok() {
+            let use_gpu_str = env::var("LOTUS_USE_GPU_INDEX").unwrap();
+            use_gpu_index = use_gpu_str.parse().unwrap();
+            if use_gpu_index > (gpu_num -1) {
+                use_gpu_index = gpu_num-1;
+            }
+        }
+        info!("bellman FFT use GPU{} and all GPU devices is {}.", use_gpu_index, gpu_num);
+
+        let device = devices[use_gpu_index]; // Select the first device for FFT
         let pq = ProQue::builder().device(device).src(src).dims(n).build()?;
 
         let srcbuff = Buffer::builder()
@@ -63,8 +76,8 @@ where
             .len(LOG2_MAX_ELEMENTS)
             .build()?;
 
-        info!("FFT: 1 working device(s) selected.");
-        info!("FFT: Device 0: {}", pq.device().name()?);
+        info!("FFT: working device(s) selected.");
+        info!("FFT: Device {}: {}", use_gpu_index, pq.device().name()?);
 
         Ok(FFTKernel {
             proque: pq,
