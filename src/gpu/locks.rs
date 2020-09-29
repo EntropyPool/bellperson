@@ -3,7 +3,7 @@ use log::{debug, info, warn};
 use std::fs::File;
 use std::path::PathBuf;
 
-const GPU_LOCK_NAME: &str = "bellman.gpu.lock";
+pub const GPU_LOCK_NAME: &str = "bellman.gpu.lock";
 const PRIORITY_LOCK_NAME: &str = "bellman.priority.lock";
 fn tmp_path(filename: &str) -> PathBuf {
     let mut p = std::env::temp_dir();
@@ -15,11 +15,11 @@ fn tmp_path(filename: &str) -> PathBuf {
 #[derive(Debug)]
 pub struct GPULock(File);
 impl GPULock {
-    pub fn lock() -> GPULock {
+    pub fn lock(filename: &str) -> GPULock {
         debug!("Acquiring GPU lock...");
-        let f = File::create(tmp_path(GPU_LOCK_NAME)).unwrap();
+        let f = File::create(tmp_path(filename)).unwrap();
         f.lock_exclusive().unwrap();
-        debug!("GPU lock acquired!");
+        debug!("GPU lock acquired {}!",tmp_path(filename).display());
         GPULock(f)
     }
 }
