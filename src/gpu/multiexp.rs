@@ -320,7 +320,7 @@ where
 
             info!("bellman Multiexp use GPU{} and all GPU devices is {},.", use_gpu_index, gpu_num);
             let newfile =  format!("{}.{}", filename,use_gpu_index);
-            filename = newfile;
+            filename = newfile.as_str();
             lock = locks::GPULock::lock(filename);
             let devices = &GPU_NVIDIA_DEVICES;
             let device = devices[use_gpu_index];

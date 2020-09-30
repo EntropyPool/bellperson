@@ -33,6 +33,7 @@ where
     E: Engine,
 {
     pub fn create(n: u32, priority: bool) -> GPUResult<FFTKernel<E>> {
+        let mut lock;
         let mut filename = locks::GPU_LOCK_NAME;
 
         let src = sources::kernel::<E>();
@@ -49,11 +50,14 @@ where
             if use_gpu_index > (gpu_num -1) {
                 use_gpu_index = gpu_num-1;
             }
-            filename =  &format!("{}.{}", filename,use_gpu_index);
+            let newfile =  format!("{}.{}", filename,use_gpu_index);
+            lock = locks::GPULock::lock(newfile.as_str());
+        } else {
+            lock = locks::GPULock::lock(filename);
         }
 
         info!("bellman FFT use GPU{} and all GPU devices is {}.", use_gpu_index, gpu_num);
-        let lock = locks::GPULock::lock(filename);
+
         let device = devices[use_gpu_index]; // Select the first device for FFT
         let pq = ProQue::builder().device(device).src(src).dims(n).build()?;
 
