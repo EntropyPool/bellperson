@@ -37,7 +37,7 @@ where
         }
 
         // Select the first device for FFT
-        let gpu_num = GPU_NVIDIA_DEVICES.len();
+        let gpu_num = devices.len();
         let mut use_gpu_index = 0;
         if env::var("LOTUS_USE_GPU_INDEX").is_ok() {
             let use_gpu_str = env::var("LOTUS_USE_GPU_INDEX").unwrap();

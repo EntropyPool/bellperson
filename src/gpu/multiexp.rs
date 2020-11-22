@@ -223,9 +223,12 @@ where
 {
     pub fn create(priority: bool) -> GPUResult<MultiexpKernel<E>> {
         let lock = locks::GPULock::lock();
-        let mut kernels;
+
+        let devices = opencl::Device::all()?;
+
+        let kernels;
         if env::var("LOTUS_USE_GPU_INDEX").is_ok() {
-            let gpu_num = GPU_NVIDIA_DEVICES.len();
+            let gpu_num = devices.len();
             if 0 == gpu_num {
                 return Err(GPUError::Simple("No working GPUs found!"));
             }
@@ -238,34 +241,24 @@ where
                 }
             }
             info!("bellman Multiexp use GPU{} and all GPU devices is {},.", use_gpu_index, gpu_num);
-            let devices = &GPU_NVIDIA_DEVICES;
-            let device = devices[use_gpu_index];
+            let device = devices[use_gpu_index].clone();
             kernels = vec!(SingleMultiexpKernel::<E>::create(device, priority)?);
         } else {
-            kernels = GPU_NVIDIA_DEVICES
-                .iter()
-                .map(|d| SingleMultiexpKernel::<E>::create(*d, priority))
-                .filter(|res| res.is_ok())
-                .map(|res| res.unwrap())
+            kernels = devices
+                .into_iter()
+                .map(|d| (d.clone(), SingleMultiexpKernel::<E>::create(d, priority)))
+                .filter_map(|(device, res)| {
+                    if let Err(ref e) = res {
+                        error!(
+                            "Cannot initialize kernel for device '{}'! Error: {}",
+                            device.name(),
+                            e
+                        );
+                    }
+                    res.ok()
+                })
                 .collect();
         }
-
-        let devices = opencl::Device::all()?;
-
-        let kernels: Vec<_> = devices
-            .into_iter()
-            .map(|d| (d.clone(), SingleMultiexpKernel::<E>::create(d, priority)))
-            .filter_map(|(device, res)| {
-                if let Err(ref e) = res {
-                    error!(
-                        "Cannot initialize kernel for device '{}'! Error: {}",
-                        device.name(),
-                        e
-                    );
-                }
-                res.ok()
-            })
-            .collect();
 
         if kernels.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));
