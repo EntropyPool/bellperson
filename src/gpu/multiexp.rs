@@ -11,13 +11,14 @@ use log::{error, info};
 use rust_gpu_tools::*;
 use std::any::TypeId;
 use std::sync::Arc;
+use std::env;
 
 const MAX_WINDOW_SIZE: usize = 10;
 const LOCAL_WORK_SIZE: usize = 256;
 const MEMORY_PADDING: f64 = 0.2f64; // Let 20% of GPU memory be free
 
 pub fn get_cpu_utilization() -> f64 {
-    use std::env;
+
     env::var("BELLMAN_CPU_UTILIZATION")
         .and_then(|v| match v.parse() {
             Ok(val) => Ok(val),
@@ -222,6 +223,32 @@ where
 {
     pub fn create(priority: bool) -> GPUResult<MultiexpKernel<E>> {
         let lock = locks::GPULock::lock();
+        let mut kernels;
+        if env::var("LOTUS_USE_GPU_INDEX").is_ok() {
+            let gpu_num = GPU_NVIDIA_DEVICES.len();
+            if 0 == gpu_num {
+                return Err(GPUError::Simple("No working GPUs found!"));
+            }
+            let mut use_gpu_index = 0;
+            if env::var("LOTUS_USE_GPU_INDEX").is_ok() {
+                let use_gpu_str = env::var("LOTUS_USE_GPU_INDEX").unwrap();
+                use_gpu_index = use_gpu_str.parse().unwrap();
+                if use_gpu_index > (gpu_num -1) {
+                    use_gpu_index = gpu_num-1;
+                }
+            }
+            info!("bellman Multiexp use GPU{} and all GPU devices is {},.", use_gpu_index, gpu_num);
+            let devices = &GPU_NVIDIA_DEVICES;
+            let device = devices[use_gpu_index];
+            kernels = vec!(SingleMultiexpKernel::<E>::create(device, priority)?);
+        } else {
+            kernels = GPU_NVIDIA_DEVICES
+                .iter()
+                .map(|d| SingleMultiexpKernel::<E>::create(*d, priority))
+                .filter(|res| res.is_ok())
+                .map(|res| res.unwrap())
+                .collect();
+        }
 
         let devices = opencl::Device::all()?;
 
