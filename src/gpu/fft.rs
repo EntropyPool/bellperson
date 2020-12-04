@@ -7,7 +7,6 @@ use ff::Field;
 use log::info;
 use rust_gpu_tools::*;
 use std::cmp;
-use std::env;
 
 const LOG2_MAX_ELEMENTS: usize = 32; // At most 2^32 elements is supported.
 const MAX_LOG2_RADIX: u32 = 8; // Radix256
@@ -29,26 +28,17 @@ where
     E: Engine,
 {
     pub fn create(priority: bool) -> GPUResult<FFTKernel<E>> {
-        let lock = locks::GPULock::lock();
-
         let devices = opencl::Device::all()?;
         if devices.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));
         }
+        let gpu_num = devices.len();
+        let lock = locks::GPULock::lock(gpu_num);
 
         // Select the first device for FFT
-        let gpu_num = devices.len();
-        let mut use_gpu_index = 0;
-        if env::var("LOTUS_USE_GPU_INDEX").is_ok() {
-            let use_gpu_str = env::var("LOTUS_USE_GPU_INDEX").unwrap();
-            use_gpu_index = use_gpu_str.parse().unwrap();
-            if use_gpu_index > (gpu_num -1) {
-                use_gpu_index = gpu_num-1;
-            }
-        }
-        info!("bellman FFT use GPU{} and all GPU devices is {}.", use_gpu_index, gpu_num);
+        let gpu = lock.1;
+        let device = devices[gpu].clone();
 
-        let device = devices[use_gpu_index].clone();
         let src = sources::kernel::<E>(device.brand() == opencl::Brand::Nvidia);
 
         let program = opencl::Program::from_opencl(device, &src)?;
@@ -56,7 +46,7 @@ where
         let omegas_buffer = program.create_buffer::<E::Fr>(LOG2_MAX_ELEMENTS)?;
 
         info!("FFT: 1 working device(s) selected.");
-        info!("FFT: Device 0: {}", program.device().name());
+        info!("FFT: Device {}: {}", gpu, program.device().name());
 
         Ok(FFTKernel {
             program,

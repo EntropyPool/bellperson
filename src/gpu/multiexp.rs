@@ -222,43 +222,12 @@ where
     E: Engine,
 {
     pub fn create(priority: bool) -> GPUResult<MultiexpKernel<E>> {
-        let lock = locks::GPULock::lock();
-
         let devices = opencl::Device::all()?;
+        let lock = locks::GPULock::lock(devices.len());
+        let gpu = lock.1;
+        let device = devices[gpu].clone();
 
-        let kernels;
-        if env::var("LOTUS_USE_GPU_INDEX").is_ok() {
-            let gpu_num = devices.len();
-            if 0 == gpu_num {
-                return Err(GPUError::Simple("No working GPUs found!"));
-            }
-            let mut use_gpu_index = 0;
-            if env::var("LOTUS_USE_GPU_INDEX").is_ok() {
-                let use_gpu_str = env::var("LOTUS_USE_GPU_INDEX").unwrap();
-                use_gpu_index = use_gpu_str.parse().unwrap();
-                if use_gpu_index > (gpu_num -1) {
-                    use_gpu_index = gpu_num-1;
-                }
-            }
-            info!("bellman Multiexp use GPU{} and all GPU devices is {},.", use_gpu_index, gpu_num);
-            let device = devices[use_gpu_index].clone();
-            kernels = vec!(SingleMultiexpKernel::<E>::create(device, priority)?);
-        } else {
-            kernels = devices
-                .into_iter()
-                .map(|d| (d.clone(), SingleMultiexpKernel::<E>::create(d, priority)))
-                .filter_map(|(device, res)| {
-                    if let Err(ref e) = res {
-                        error!(
-                            "Cannot initialize kernel for device '{}'! Error: {}",
-                            device.name(),
-                            e
-                        );
-                    }
-                    res.ok()
-                })
-                .collect();
-        }
+        let kernels = vec!(SingleMultiexpKernel::<E>::create(device, priority)?);
 
         if kernels.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));
