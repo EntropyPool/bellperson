@@ -328,11 +328,11 @@ where
     }
 
     #[cfg(feature = "gpu")]
-    let prio_lock = if priority {
-        Some(PriorityLock::lock())
-    } else {
-        None
-    };
+    // let prio_lock = if priority {
+    //     Some(PriorityLock::lock())
+    // } else {
+    //     None
+    // };
 
     let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
 
@@ -508,7 +508,7 @@ where
     drop(multiexp_kern);
 
     #[cfg(feature = "gpu")]
-    drop(prio_lock);
+    // drop(prio_lock);
 
     let proofs = h_s
         .into_iter()
