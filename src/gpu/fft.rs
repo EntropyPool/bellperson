@@ -28,7 +28,7 @@ where
     E: Engine,
 {
     pub fn create(priority: bool) -> GPUResult<FFTKernel<E>> {
-        let devices = opencl::Device::all()?;
+        let devices = opencl::Device::all();
         if devices.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));
         }

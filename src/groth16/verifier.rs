@@ -6,6 +6,7 @@ use rayon::prelude::*;
 use super::{multiscalar, PreparedVerifyingKey, Proof, VerifyingKey};
 use crate::multicore::VERIFIER_POOL as POOL;
 use crate::SynthesisError;
+use log::info;
 
 /// Generate a prepared verifying key, required to verify a proofs.
 pub fn prepare_verifying_key<E: Engine>(vk: &VerifyingKey<E>) -> PreparedVerifyingKey<E> {
@@ -93,6 +94,11 @@ pub fn verify_proof<'a, E: Engine>(
 
     // Calculate the final exponentiation
     let actual = E::final_exponentiation(&ml_all).unwrap();
+    if actual == pvk.alpha_g1_beta_g2 {
+        info!("result is true");
+    } else {
+        info!("result is false");
+    }
 
     Ok(actual == pvk.alpha_g1_beta_g2)
 }

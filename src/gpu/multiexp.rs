@@ -11,14 +11,13 @@ use log::{error, info};
 use rust_gpu_tools::*;
 use std::any::TypeId;
 use std::sync::Arc;
-use std::env;
 
-const MAX_WINDOW_SIZE: usize = 10;
+pub(crate) const MAX_WINDOW_SIZE: usize = 10;
 const LOCAL_WORK_SIZE: usize = 256;
 const MEMORY_PADDING: f64 = 0.2f64; // Let 20% of GPU memory be free
 
 pub fn get_cpu_utilization() -> f64 {
-
+    use std::env;
     env::var("BELLMAN_CPU_UTILIZATION")
         .and_then(|v| match v.parse() {
             Ok(val) => Ok(val),
@@ -46,12 +45,17 @@ where
     _phantom: std::marker::PhantomData<E::Fr>,
 }
 
-fn calc_num_groups(core_count: usize, num_windows: usize) -> usize {
+#[cfg(feature = "cuda")]
+pub use super::cuda::SingleMultiexpKernel as MySingleMultiexpKernel;
+#[cfg(not(feature = "cuda"))]
+pub use SingleMultiexpKernel as MySingleMultiexpKernel;
+
+pub(crate) fn calc_num_groups(core_count: usize, num_windows: usize) -> usize {
     // Observations show that we get the best performance when num_groups * num_windows ~= 2 * CUDA_CORES
     2 * core_count / num_windows
 }
 
-fn calc_window_size(n: usize, exp_bits: usize, core_count: usize) -> usize {
+pub(crate) fn calc_window_size(n: usize, exp_bits: usize, core_count: usize) -> usize {
     // window_size = ln(n / num_groups)
     // num_windows = exp_bits / window_size
     // num_groups = 2 * core_count / num_windows = 2 * core_count * window_size / exp_bits
@@ -70,7 +74,7 @@ fn calc_window_size(n: usize, exp_bits: usize, core_count: usize) -> usize {
     MAX_WINDOW_SIZE
 }
 
-fn calc_best_chunk_size(max_window_size: usize, core_count: usize, exp_bits: usize) -> usize {
+pub(crate) fn calc_best_chunk_size(max_window_size: usize, core_count: usize, exp_bits: usize) -> usize {
     // Best chunk-size (N) can also be calculated using the same logic as calc_window_size:
     // n = e^window_size * window_size * 2 * core_count / exp_bits
     (((max_window_size as f64).exp() as f64)
@@ -81,7 +85,7 @@ fn calc_best_chunk_size(max_window_size: usize, core_count: usize, exp_bits: usi
         .ceil() as usize
 }
 
-fn calc_chunk_size<E>(mem: u64, core_count: usize) -> usize
+pub(crate) fn calc_chunk_size<E>(mem: u64, core_count: usize) -> usize
 where
     E: Engine,
 {
@@ -93,7 +97,7 @@ where
         / (aff_size + exp_size)
 }
 
-fn exp_size<E: Engine>() -> usize {
+pub(crate) fn exp_size<E: Engine>() -> usize {
     std::mem::size_of::<<E::Fr as ff::PrimeField>::Repr>()
 }
 
@@ -213,7 +217,7 @@ pub struct MultiexpKernel<E>
 where
     E: Engine,
 {
-    kernels: Vec<SingleMultiexpKernel<E>>,
+    kernels: Vec<MySingleMultiexpKernel<E>>,
     _lock: locks::GPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
 }
 
@@ -222,7 +226,7 @@ where
     E: Engine,
 {
     pub fn create(priority: bool) -> GPUResult<MultiexpKernel<E>> {
-        let devices = opencl::Device::all()?;
+        let devices = opencl::Device::all();
         let lock = locks::GPULock::lock(devices.len());
         let gpu = lock.1;
         let device = devices[gpu].clone();
