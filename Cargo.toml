@@ -54,7 +54,7 @@ env_logger = "0.8.1"
 criterion = "0.3.2"
 
 [features]
-default = ["pairing"]
+default = ["blst"]
 gpu = ["rust-gpu-tools", "ff-cl-gen", "fs2"]
 cuda = ["gpu"]
 groth16 = []

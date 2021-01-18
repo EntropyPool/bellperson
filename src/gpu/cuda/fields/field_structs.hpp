@@ -91,7 +91,7 @@ struct affine {
     bool inf;
 #endif
 #ifndef USE_64BIT // 32bit needs padding
-uint32_t _padding;
+// uint32_t _padding;
 #endif
 };
 

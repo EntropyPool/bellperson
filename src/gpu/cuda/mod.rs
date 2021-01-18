@@ -4,12 +4,10 @@
 
 use std::{any::TypeId, marker::PhantomData};
 
+#[cfg(feature = "blst")]
+use blstrs::Engine;
 use ff::{Field, PrimeField, ScalarEngine};
 use groupy::{CurveAffine, CurveProjective};
-// #[cfg(feature = "pairing")]
-// use paired::Engine;
-// #[cfg(feature = "blst")]
-// use blstrs::Engine;
 use crate::bls::Engine;
 use rust_gpu_tools::opencl;
 use rust_gpu_tools::opencl::Device;
@@ -340,6 +338,7 @@ mod tests {
 
     use super::*;
 
+    use crate::bls::{Fr, FrRepr, G1Affine, G2Affine};
     use crate::{
         bls::Bls12,
         domain::{serial_fft, Scalar},
@@ -349,7 +348,6 @@ mod tests {
     };
     use ff::{Field, PrimeField, ScalarEngine};
     use groupy::CurveProjective;
-    use paired::bls12_381::{Fr, FrRepr, G1Affine, G2Affine};
     use rand_core::SeedableRng;
     use rand_xorshift::XorShiftRng;
     use rust_gpu_tools::opencl;
@@ -399,7 +397,7 @@ mod tests {
     ) -> <G as CurveAffine>::Projective
     where
         G: CurveAffine,
-        <G as groupy::CurveAffine>::Engine: paired::Engine,
+        <G as groupy::CurveAffine>::Engine: Engine,
     {
         let pool = Worker::new();
         let bases = Arc::new(bases.iter().map(Clone::clone).collect::<Vec<_>>());

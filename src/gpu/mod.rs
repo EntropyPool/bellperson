@@ -24,21 +24,21 @@ pub use self::utils::*;
 mod fft;
 
 #[cfg(feature = "gpu")]
-pub use self::fft::{FFTKernel as CLFFTKernel};
+pub use self::fft::FFTKernel as CLFFTKernel;
 
 #[cfg(feature = "gpu")]
 mod multiexp;
 
 #[cfg(feature = "gpu")]
-pub use self::multiexp::{MultiexpKernel as MultiexpKernel};
+pub use self::multiexp::MultiexpKernel;
 
 #[cfg(feature = "cuda")]
 mod cuda;
 
-#[cfg(feature = "cuda")]
-pub use cuda::FFTKernel as FFTKernel;
 #[cfg(all(not(feature = "cuda"), feature = "gpu"))]
 pub use self::fft::FFTKernel;
+#[cfg(feature = "cuda")]
+pub use cuda::FFTKernel;
 
 #[cfg(not(feature = "gpu"))]
 mod nogpu;

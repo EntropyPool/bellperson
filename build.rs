@@ -49,7 +49,12 @@ fn compile_cuda_libraries() {
     // as cuda usually does not support the latest version of gcc.
     // https://stackoverflow.com/questions/49342835/changing-the-compilation-arguments-passed-to-nvcc-by-rust-using-cc
     //env::set_var("CXX", env::var("CXX").unwrap_or("cuda-g++".to_string()));
-    cc::Build::new()
+    let mut builder = cc::Build::new();
+
+    if cfg!(feature = "blstrs") {
+        builder.flag("-DBLSTRS");
+    }
+    builder
         .cuda(true)
         .file("src/gpu/cuda/gpu_test.cu")
         .flag("-lcuda")
