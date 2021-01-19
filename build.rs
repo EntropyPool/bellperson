@@ -57,8 +57,8 @@ fn compile_cuda_libraries() {
         .flag("-v")
         //.flag("-t16")
         .flag("-std=c++11")
-        //.flag("-gencode=arch=compute_86,code=compute_86")
-        //.flag("--maxrregcount=128")
+        .flag("-gencode=arch=compute_75,code=compute_75")
+        .flag("--maxrregcount=128")
         .include("src/gpu/cuda/fields")
         .compile("bellpersoncuda");
     // println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64");

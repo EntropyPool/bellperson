@@ -47,11 +47,8 @@ static State multiexp_cuda(InputParameters<T> p) {
 
     cudaEventRecord(start, 0);
 
-    //size_t heap = sizeof(projective<T>) * ((1 << p.window_size) - 1) + 4096;
-    //CUDA_CHECK(cudaDeviceSetLimit(cudaLimitMallocHeapSize, heap));
-
     // Call cuda
-    constexpr uint32_t threadsPerBlock = 256; 
+    constexpr uint32_t threadsPerBlock = 512; 
     //uint32_t blocksPerGrid = (2 * p.core_count + threadsPerBlock - 1) / threadsPerBlock;
     uint32_t blocksPerGrid = (uint32_t)ceil((2 * p.core_count) / threadsPerBlock);
     bellman_multiexp<T><<<blocksPerGrid, threadsPerBlock>>>
@@ -63,9 +60,6 @@ static State multiexp_cuda(InputParameters<T> p) {
                  p.num_groups,
                  p.num_windows,
                  p.window_size);
-
-    CUDA_CHECK(cudaDeviceSynchronize());
-    CUDA_CHECK(cudaGetLastError());
     
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
@@ -147,18 +141,16 @@ State radix_fft_cuda(FFTInputParameters p) {
             1 << std::min(deg - 1, (uint32_t)MAX_LOG2_LOCAL_WORK_SIZE);
         uint32_t blocksPerGrid = (p.n >> deg);
         size_t u_size = sizeof(Fr) * (1 << deg);
-
         radix_fft<<<blocksPerGrid, threadsPerBlock, u_size>>>(
             d_x, d_y, d_pq, d_omegas, p.n, log_p, deg, p.max_deg);
-
-        CUDA_CHECK(cudaDeviceSynchronize());
-        CUDA_CHECK(cudaGetLastError());
 
         log_p += deg;
         Fr* tmp = d_x;
         d_x = d_y;
         d_y = tmp;
     }
+
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);

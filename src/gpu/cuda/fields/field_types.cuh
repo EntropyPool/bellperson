@@ -1,7 +1,7 @@
 #ifndef FIELD_TYPES_HEADER
 #define FIELD_TYPES_HEADER
 
-#define cu_func __device__ __forceinline__
+#define cu_func __device__ __noinline__
 #define cu_inline_func __device__ __forceinline__
 #define cu_entry_func __global__
 
