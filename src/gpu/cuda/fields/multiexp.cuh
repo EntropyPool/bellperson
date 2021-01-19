@@ -7,19 +7,20 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 template<typename G>
-cu_func projective<G> add_mixed(projective<G> a, affine<G> b) {
+cu_func projective<G> add_mixed(projective<G> a_, affine<G> b) {
     #ifndef BLSTRS
     if(b.inf) {
-        return a;
+        return a_;
     }
   #endif
 
-  const G local_zero = G::Get_ZERO();
-  if(eq<G>(a.z, local_zero)) {
-    const G local_one = G::Get_ONE();
+  // cache global memory to a better place. 
+  projective<G> a = a_;
+
+  if(eq<G>(a.z, G::Get_ZERO())) {
     a.x = b.x;
     a.y = b.y;
-    a.z = local_one;
+    a.z = G::Get_ONE();
     return a;
   }
 
@@ -63,7 +64,7 @@ static __global__ void bellman_multiexp(
   uint32_t num_windows,
   uint32_t window_size) {
   // We have `num_windows` * `num_groups` threads per multiexp.
-  const uint32_t gid = blockIdx.x * blockDim.x + threadIdx.x;
+  const uint32_t gid = threadIdx.x + blockIdx.x * blockDim.x;
   if(gid >= num_windows * num_groups) return;
 
   // We have (2^window_size - 1) buckets.
@@ -72,9 +73,7 @@ static __global__ void bellman_multiexp(
   // Each thread has its own set of buckets in global memory.
   buckets += bucket_len * gid;
 
-  projective<G> local_zero; //= projective<G>::Get_ZERO();
-  projective<G>::COPY_ZERO(&local_zero);
-  for(uint32_t i = 0; i < bucket_len; i++) buckets[i] = local_zero;
+  for(uint32_t i = 0; i < bucket_len; i++) buckets[i] = projective<G>::Get_ZERO();
 
   const uint32_t len = (n + num_groups - 1) / num_groups; // Num of elements in each group
 
@@ -88,6 +87,14 @@ static __global__ void bellman_multiexp(
   projective<G> res;// = projective<G>::Get_ZERO();
   projective<G>::COPY_ZERO(&res);
 
+  /*
+  if (gid < 5) {
+    printf("gid: %d, nstart = %d, nend = %d\n", gid, nstart, nend);
+  }
+  */
+
+  // temporarily guard it 
+  //assert(num_window == 32);
   for(uint32_t i = nstart; i < nend; i++) {
     uint32_t ind = get_bits<Fr>(exps[i], bits, w);
     if(ind--) buckets[ind] = add_mixed<G>(buckets[ind], bases[i]);
@@ -97,8 +104,7 @@ static __global__ void bellman_multiexp(
   // e.g. 3a + 2b + 1c = a +
   //                    (a) + b +
   //                    ((a) + b) + c
-  projective<G> acc;// = projective<G>::Get_ZERO();
-  projective<G>::COPY_ZERO(&acc);
+  projective<G> acc = projective<G>::Get_ZERO();
   for(int j = bucket_len - 1; j >= 0; j--) {
     acc = add<G>(acc, buckets[j]);
     res = add<G>(res, acc);

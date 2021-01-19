@@ -231,7 +231,7 @@ where
         let gpu = lock.1;
         let device = devices[gpu].clone();
 
-        let kernels = vec!(SingleMultiexpKernel::<E>::create(device, priority)?);
+        let kernels = vec!(MySingleMultiexpKernel::<E>::create(device, priority)?);
 
         if kernels.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));

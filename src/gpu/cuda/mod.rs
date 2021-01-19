@@ -175,15 +175,17 @@ where
     E: Engine,
 {
     pub fn create(priority: bool) -> GPUResult<FFTKernel<E>> {
-        let lock = locks::GPULock::lock();
-
-        let devices = opencl::Device::all()?;
+        let devices = opencl::Device::all();
         if devices.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));
         }
 
+        let lock = locks::GPULock::lock(devices.len());
+
         // Select the first device for FFT
-        let device = devices[0].clone();
+        let gpu = lock.1;
+        let device = devices[gpu].clone();
+        //let device = devices[0].clone();
 
         Ok(FFTKernel {
             pq: vec![],
