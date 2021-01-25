@@ -45,7 +45,7 @@ where
     pub(crate) max_window_size: usize,
     pub(crate) chunk_size_scale: usize,
     pub(crate) best_chunk_size_scale: usize,
-    pub(crate) g2_chunk_divider: usize,
+    pub(crate) g2_chunk_divider: f32,
     _phantom: std::marker::PhantomData<E::Fr>,
 }
 

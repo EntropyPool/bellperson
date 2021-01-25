@@ -48,7 +48,7 @@ where
     max_window_size: usize,
     chunk_size_scale: usize,
     best_chunk_size_scale: usize,
-    g2_chunk_divider: usize,
+    g2_chunk_divider: f32,
 
     priority: bool,
     _phantom: std::marker::PhantomData<E::Fr>,
@@ -355,7 +355,7 @@ where
                                 let mut acc = <G as CurveAffine>::Projective::zero();
                                 let mut jack_chunk = kern.n;
                                 if TypeId::of::<G>() == TypeId::of::<E::G2Affine>() {
-                                    jack_chunk = jack_chunk / kern.g2_chunk_divider;
+                                    jack_chunk = (jack_chunk as f32 / kern.g2_chunk_divider).ceil() as usize;
                                 }
                                 for (bases, exps) in bases.chunks(jack_chunk).zip(exps.chunks(jack_chunk)) {
                                     let result = kern.multiexp(bases, exps, bases.len())?;
