@@ -13,6 +13,10 @@ use std::any::TypeId;
 use std::sync::Arc;
 use std::env;
 
+use std::sync::mpsc;
+extern crate scoped_threadpool;
+use scoped_threadpool::Pool;
+
 const MAX_WINDOW_SIZE: usize = 10;
 const LOCAL_WORK_SIZE: usize = 256;
 const MEMORY_PADDING: f64 = 0.2f64; // Let 20% of GPU memory be free
@@ -41,17 +45,26 @@ where
 
     core_count: usize,
     n: usize,
+    max_window_size: usize,
+    chunk_size_scale: usize,
+    best_chunk_size_scale: usize,
+    g2_chunk_divider: usize,
 
     priority: bool,
     _phantom: std::marker::PhantomData<E::Fr>,
 }
 
-fn calc_num_groups(core_count: usize, num_windows: usize) -> usize {
+#[cfg(feature = "cuda")]
+pub use super::cuda::SingleMultiexpKernel as MySingleMultiexpKernel;
+#[cfg(not(feature = "cuda"))]
+pub use SingleMultiexpKernel as MySingleMultiexpKernel;
+
+pub(crate) fn calc_num_groups(core_count: usize, num_windows: usize) -> usize {
     // Observations show that we get the best performance when num_groups * num_windows ~= 2 * CUDA_CORES
     2 * core_count / num_windows
 }
 
-fn calc_window_size(n: usize, exp_bits: usize, core_count: usize) -> usize {
+pub(crate) fn calc_window_size(n: usize, exp_bits: usize, core_count: usize, max_window_size: usize) -> usize {
     // window_size = ln(n / num_groups)
     // num_windows = exp_bits / window_size
     // num_groups = 2 * core_count / num_windows = 2 * core_count * window_size / exp_bits
@@ -60,28 +73,31 @@ fn calc_window_size(n: usize, exp_bits: usize, core_count: usize) -> usize {
     //
     // Thus we need to solve the following equation:
     // window_size + ln(window_size) = ln(exp_bits * n / (2 * core_count))
+
+    /*
     let lower_bound = (((exp_bits * n) as f64) / ((2 * core_count) as f64)).ln();
-    for w in 0..MAX_WINDOW_SIZE {
+    for w in 0..max_window_size {
         if (w as f64) + (w as f64).ln() > lower_bound {
             return w;
         }
     }
+    */
 
-    MAX_WINDOW_SIZE
+    max_window_size
 }
 
-fn calc_best_chunk_size(max_window_size: usize, core_count: usize, exp_bits: usize) -> usize {
+pub(crate) fn calc_best_chunk_size(max_window_size: usize, core_count: usize, exp_bits: usize, scale: usize) -> usize {
     // Best chunk-size (N) can also be calculated using the same logic as calc_window_size:
     // n = e^window_size * window_size * 2 * core_count / exp_bits
     (((max_window_size as f64).exp() as f64)
         * (max_window_size as f64)
-        * 2f64
+        * scale as f64
         * (core_count as f64)
         / (exp_bits as f64))
         .ceil() as usize
 }
 
-fn calc_chunk_size<E>(mem: u64, core_count: usize) -> usize
+pub(crate) fn calc_chunk_size<E>(mem: u64, core_count: usize, scale: usize, max_window_size: usize) -> usize
 where
     E: Engine,
 {
@@ -89,11 +105,11 @@ where
     let exp_size = exp_size::<E>();
     let proj_size = std::mem::size_of::<E::G1>() + std::mem::size_of::<E::G2>();
     ((((mem as f64) * (1f64 - MEMORY_PADDING)) as usize)
-        - (2 * core_count * ((1 << MAX_WINDOW_SIZE) + 1) * proj_size))
+        - (scale * core_count * ((1 << max_window_size) + 1) * proj_size))
         / (aff_size + exp_size)
 }
 
-fn exp_size<E: Engine>() -> usize {
+pub(crate) fn exp_size<E: Engine>() -> usize {
     std::mem::size_of::<<E::Fr as ff::PrimeField>::Repr>()
 }
 
@@ -107,13 +123,21 @@ where
         let exp_bits = exp_size::<E>() * 8;
         let core_count = utils::get_core_count(&d);
         let mem = d.memory();
-        let max_n = calc_chunk_size::<E>(mem, core_count);
-        let best_n = calc_best_chunk_size(MAX_WINDOW_SIZE, core_count, exp_bits);
+        let max_window_size = utils::get_max_window_size(&d);
+        let chunk_size_scale = utils::get_chunk_size_scale(&d);
+        let best_chunk_size_scale = utils::get_best_chunk_size_scale(&d);
+        let g2_chunk_divider = utils::get_g2_chunk_divider(&d);
+        let max_n = calc_chunk_size::<E>(mem, core_count, chunk_size_scale, max_window_size);
+        let best_n = calc_best_chunk_size(max_window_size, core_count, exp_bits, best_chunk_size_scale);
         let n = std::cmp::min(max_n, best_n);
 
         Ok(SingleMultiexpKernel {
             program: opencl::Program::from_opencl(d, &src)?,
             core_count,
+            max_window_size,
+            chunk_size_scale,
+            best_chunk_size_scale,
+            g2_chunk_divider,
             n,
             priority,
             _phantom: std::marker::PhantomData,
@@ -134,7 +158,7 @@ where
         // }
 
         let exp_bits = exp_size::<E>() * 8;
-        let window_size = calc_window_size(n as usize, exp_bits, self.core_count);
+        let window_size = calc_window_size(n as usize, exp_bits, self.core_count, self.max_window_size);
         let num_windows = ((exp_bits as f64) / (window_size as f64)).ceil() as usize;
         let num_groups = calc_num_groups(self.core_count, num_windows);
         let bucket_len = 1 << window_size;
@@ -152,10 +176,10 @@ where
 
         let bucket_buffer = self
             .program
-            .create_buffer::<<G as CurveAffine>::Projective>(2 * self.core_count * bucket_len)?;
+            .create_buffer::<<G as CurveAffine>::Projective>((4 * self.core_count * bucket_len) as usize)?;
         let result_buffer = self
             .program
-            .create_buffer::<<G as CurveAffine>::Projective>(2 * self.core_count)?;
+            .create_buffer::<<G as CurveAffine>::Projective>((4 * self.core_count) as usize)?;
 
         // Make global work size divisible by `LOCAL_WORK_SIZE`
         let mut global_work_size = num_windows * num_groups;
@@ -213,7 +237,7 @@ pub struct MultiexpKernel<E>
 where
     E: Engine,
 {
-    kernels: Vec<SingleMultiexpKernel<E>>,
+    kernels: Vec<MySingleMultiexpKernel<E>>,
     _lock: locks::GPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
 }
 
@@ -227,7 +251,7 @@ where
         let gpu = lock.1;
         let device = devices[gpu].clone();
 
-        let kernels = vec!(SingleMultiexpKernel::<E>::create(device, priority)?);
+        let kernels = vec!(MySingleMultiexpKernel::<E>::create(device, priority)?);
 
         if kernels.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));
@@ -281,6 +305,7 @@ where
 
             let mut acc = <G as CurveAffine>::Projective::zero();
 
+            /*
             let results = if n > 0 {
                 bases
                     .par_chunks(chunk_size)
@@ -313,6 +338,65 @@ where
             }
 
             acc.add_assign(&cpu_acc.wait().unwrap());
+            */
+
+            let (tx_gpu, rx_gpu) = mpsc::channel();
+            let (tx_cpu, rx_cpu) = mpsc::channel();
+            let mut scoped_pool = Pool::new(2);
+            scoped_pool.scoped(|scoped| {
+                // GPU
+                scoped.execute(move || {
+                    let results = if n > 0 {
+                        bases
+                            .par_chunks(chunk_size)
+                            .zip(exps.par_chunks(chunk_size))
+                            .zip(self.kernels.par_iter_mut())
+                            .map(|((bases, exps), kern)| -> Result<<G as CurveAffine>::Projective, GPUError> {
+                                let mut acc = <G as CurveAffine>::Projective::zero();
+                                let mut jack_chunk = kern.n;
+                                if TypeId::of::<G>() == TypeId::of::<E::G2Affine>() {
+                                    jack_chunk = jack_chunk / kern.g2_chunk_divider;
+                                }
+                                for (bases, exps) in bases.chunks(jack_chunk).zip(exps.chunks(jack_chunk)) {
+                                    let result = kern.multiexp(bases, exps, bases.len())?;
+                                    acc.add_assign(&result);
+                                }
+
+                                Ok(acc)
+                            })
+                            .collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    };
+
+                    tx_gpu.send(results).unwrap();
+
+                });
+                // CPU
+                scoped.execute(move || {
+                    let cpu_acc = cpu_multiexp(
+                        &pool,
+                        (Arc::new(cpu_bases.to_vec()), 0),
+                        FullDensity,
+                        Arc::new(cpu_exps.to_vec()),
+                        &mut None,
+                    );
+                    let cpu_r = cpu_acc.wait().unwrap();
+
+                    tx_cpu.send(cpu_r).unwrap();
+                });
+            });
+
+            // waiting results...
+            let results = rx_gpu.recv().unwrap();
+            let cpu_r = rx_cpu.recv().unwrap();
+
+            for r in results {
+                acc.add_assign(&r?);
+            }
+
+            acc.add_assign(&cpu_r);
+
             Ok(acc)
         })
     }
