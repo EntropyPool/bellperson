@@ -189,7 +189,7 @@ where
     E: Engine,
 {
     pub fn create(priority: bool) -> GPUResult<FFTKernel<E>> {
-        let lock = locks::GPULock::lock();
+        let lock = locks::GPULock::lock(0);
 
         let devices = opencl::Device::all()?;
         if devices.is_empty() {
