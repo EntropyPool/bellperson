@@ -37,7 +37,6 @@ where
     E: Engine,
 {
     pub(crate) gpu_id: u32,
-    pub(crate) program: opencl::Program,
     pub(crate) exp_bits: usize,
     pub(crate) core_count: usize,
     pub(crate) n: usize,
@@ -54,8 +53,6 @@ where
     E: Engine,
 {
     pub fn create(d: opencl::Device, priority: bool, gpuid: u32) -> GPUResult<SingleMultiexpKernel<E>> {
-        let src = sources::kernel::<E>(d.brand() == opencl::Brand::Nvidia);
-
         let exp_bits = exp_size::<E>() * 8;
         let core_count = utils::get_core_count(&d);
         let mem = d.memory();
@@ -69,7 +66,6 @@ where
 
         Ok(SingleMultiexpKernel {
             gpu_id: gpuid,
-            program: opencl::Program::from_opencl(d, &src)?,
             exp_bits,
             core_count,
             n,

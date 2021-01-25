@@ -271,9 +271,8 @@ where
         );
         for (i, k) in kernels.iter().enumerate() {
             info!(
-                "Multiexp: Device {}: {} (Chunk-size: {})",
+                "Multiexp: {} (Chunk-size: {})",
                 i,
-                k.program.device().name(),
                 k.n
             );
         }
