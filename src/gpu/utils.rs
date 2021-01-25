@@ -34,7 +34,7 @@ lazy_static::lazy_static! {
             ("GeForce RTX 3080".to_string(), GPUInfo{core_count: 8704, max_window_size: 9, chunk_size_scale: 25, best_chunk_size_scale: 25, g2_chunk_divider: 2}),
             ("GeForce RTX 3070".to_string(), GPUInfo{core_count: 5888, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1}),
 
-            ("GeForce RTX 2080 Ti".to_string(), GPUInfo{core_count: 4352, max_window_size: 8, chunk_size_scale: 170, best_chunk_size_scale: 170, g2_chunk_divider: 1}),
+            ("GeForce RTX 2080 Ti".to_string(), GPUInfo{core_count: 4352, max_window_size: 8, chunk_size_scale: 190, best_chunk_size_scale: 190, g2_chunk_divider: 1}),
             ("GeForce RTX 2080 SUPER".to_string(), GPUInfo{core_count: 3072, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1}),
             ("GeForce RTX 2080".to_string(), GPUInfo{core_count: 2944, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1}),
             ("GeForce RTX 2070 SUPER".to_string(), GPUInfo{core_count: 2560, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1}),
