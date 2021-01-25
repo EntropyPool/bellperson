@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Instant;
-use crossbeam_channel::unbounded;
+// use std::thread;
+use std::sync::mpsc;
 
 use crate::bls::Engine;
 use ff::{Field, PrimeField};
@@ -17,6 +18,8 @@ use crate::{
     Circuit, ConstraintSystem, Index, LinearCombination, SynthesisError, Variable, BELLMAN_VERSION,
 };
 use log::info;
+
+// use crossbeam_channel::{bounded, Receiver};
 
 extern crate scoped_threadpool;
 use scoped_threadpool::Pool;
@@ -337,12 +340,12 @@ where
     // get params
     info!("ZQ: get params start");
     let now = Instant::now();
-    let (tx_h, rx_h) = unbounded();
-    let (tx_l, rx_l) = unbounded();
-    let (tx_a, rx_a) = unbounded();
-    let (tx_bg1, rx_bg1) = unbounded();
-    let (tx_bg2, rx_bg2) = unbounded();
-    let (tx_assignments, rx_assignments) = unbounded();
+    let (tx_h, rx_h) = mpsc::channel();
+    let (tx_l, rx_l) = mpsc::channel();
+    let (tx_a, rx_a) = mpsc::channel();
+    let (tx_bg1, rx_bg1) = mpsc::channel();
+    let (tx_bg2, rx_bg2) = mpsc::channel();
+    let (tx_assignments, rx_assignments) = mpsc::channel();
     let input_assignment_len = provers[0].input_assignment.len();
     let mut pool = Pool::new(6);
     pool.scoped(|scoped| {
