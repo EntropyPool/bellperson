@@ -6,10 +6,11 @@ use std::{any::TypeId, marker::PhantomData};
 
 use ff::{Field, PrimeField, ScalarEngine};
 use groupy::{CurveAffine, CurveProjective};
-#[cfg(feature = "pairing")]
-use paired::Engine;
-#[cfg(feature = "blst")]
-use blstrs::Engine;
+// #[cfg(feature = "pairing")]
+// use paired::Engine;
+// #[cfg(feature = "blst")]
+// use blstrs::Engine;
+use crate::bls::Engine;
 use rust_gpu_tools::opencl;
 use std::cmp::min;
 
