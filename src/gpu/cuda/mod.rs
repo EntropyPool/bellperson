@@ -46,6 +46,7 @@ where
     pub(crate) chunk_size_scale: usize,
     pub(crate) best_chunk_size_scale: usize,
     pub(crate) g2_chunk_divider: f32,
+    pub(crate) reserved_mem_ratio: f32,
     _phantom: std::marker::PhantomData<E::Fr>,
 }
 
@@ -63,7 +64,8 @@ where
         let chunk_size_scale = utils::get_chunk_size_scale(&d);
         let best_chunk_size_scale = utils::get_best_chunk_size_scale(&d);
         let g2_chunk_divider = utils::get_g2_chunk_divider(&d);
-        let max_n = calc_chunk_size::<E>(mem, core_count, chunk_size_scale, max_window_size);
+        let reserved_mem_ratio = utils::get_reserved_mem_ratio(&d);
+        let max_n = calc_chunk_size::<E>(mem, core_count, chunk_size_scale, max_window_size, reserved_mem_ratio);
         let best_n = calc_best_chunk_size(max_window_size, core_count, exp_bits, best_chunk_size_scale);
         let n = min(max_n, best_n);
 
@@ -77,6 +79,7 @@ where
             chunk_size_scale,
             best_chunk_size_scale,
             g2_chunk_divider,
+            reserved_mem_ratio,
             _phantom: std::marker::PhantomData,
         })
     }

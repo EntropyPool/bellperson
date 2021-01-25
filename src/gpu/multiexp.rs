@@ -18,7 +18,6 @@ extern crate scoped_threadpool;
 use scoped_threadpool::Pool;
 
 const LOCAL_WORK_SIZE: usize = 256;
-const MEMORY_PADDING: f64 = 0.2f64; // Let 20% of GPU memory be free
 
 pub fn get_cpu_utilization() -> f64 {
 
@@ -48,6 +47,7 @@ where
     chunk_size_scale: usize,
     best_chunk_size_scale: usize,
     g2_chunk_divider: f32,
+    reserved_mem_ratio: f32,
 
     priority: bool,
     _phantom: std::marker::PhantomData<E::Fr>,
@@ -96,14 +96,14 @@ pub(crate) fn calc_best_chunk_size(max_window_size: usize, core_count: usize, ex
         .ceil() as usize
 }
 
-pub(crate) fn calc_chunk_size<E>(mem: u64, core_count: usize, scale: usize, max_window_size: usize) -> usize
+pub(crate) fn calc_chunk_size<E>(mem: u64, core_count: usize, scale: usize, max_window_size: usize, reserved_mem_ratio: f32) -> usize
 where
     E: Engine,
 {
     let aff_size = std::mem::size_of::<E::G1Affine>() + std::mem::size_of::<E::G2Affine>();
     let exp_size = exp_size::<E>();
     let proj_size = std::mem::size_of::<E::G1>() + std::mem::size_of::<E::G2>();
-    ((((mem as f64) * (1f64 - MEMORY_PADDING)) as usize)
+    ((((mem as f64) * (1f64 - reserved_mem_ratio as f64)) as usize)
         - (scale * core_count * ((1 << max_window_size) + 1) * proj_size))
         / (aff_size + exp_size)
 }
@@ -122,11 +122,12 @@ where
         let exp_bits = exp_size::<E>() * 8;
         let core_count = utils::get_core_count(&d);
         let mem = d.memory();
+        let reserved_mem_ratio = utils::get_reserved_mem_ratio(&d);
         let max_window_size = utils::get_max_window_size(&d);
         let chunk_size_scale = utils::get_chunk_size_scale(&d);
         let best_chunk_size_scale = utils::get_best_chunk_size_scale(&d);
         let g2_chunk_divider = utils::get_g2_chunk_divider(&d);
-        let max_n = calc_chunk_size::<E>(mem, core_count, chunk_size_scale, max_window_size);
+        let max_n = calc_chunk_size::<E>(mem, core_count, chunk_size_scale, max_window_size, reserved_mem_ratio);
         let best_n = calc_best_chunk_size(max_window_size, core_count, exp_bits, best_chunk_size_scale);
         let n = std::cmp::min(max_n, best_n);
 
@@ -137,6 +138,7 @@ where
             chunk_size_scale,
             best_chunk_size_scale,
             g2_chunk_divider,
+            reserved_mem_ratio,
             n,
             priority,
             _phantom: std::marker::PhantomData,
