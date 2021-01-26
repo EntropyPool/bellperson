@@ -84,6 +84,57 @@ where
         })
     }
 
+    pub fn multiexp_chunk_size<G>(
+        &mut self,
+        bases: &[G],
+        exps: &[<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr],
+    ) -> GPUResult<usize>
+    where
+        G: CurveAffine,
+	{
+        let exps_ptr = exps.as_ptr() as *mut Fr;
+        let cuda_info: CudaInfo = Default::default();
+        let exp_bits = exp_size::<E>() * 8;
+        let window_size = calc_window_size(0 as usize, exp_bits, self.core_count, self.max_window_size);
+        let mut results = vec![<G as CurveAffine>::Projective::zero(); 1];
+
+        let chunk_size = if TypeId::of::<G>() == TypeId::of::<E::G1Affine>() {
+            let bases_ptr = bases.as_ptr() as *mut affine<G1>;
+            let input_parameters = G1InputParameters {
+                results: results.as_ptr() as *mut projective<G1>,
+                bases: bases_ptr,
+                exps: exps_ptr,
+                n: 0,
+                num_groups: 0,
+                num_windows: 0,
+                window_size: window_size as u32,
+                core_count: self.core_count as u32,
+                cuda_info,
+                _phantom_0: PhantomData,
+            };
+            unsafe { G1_multiexp_chunk_size(input_parameters) }
+        } else if TypeId::of::<G>() == TypeId::of::<E::G2Affine>() {
+            let bases_ptr = bases.as_ptr() as *mut affine<G2>;
+            let input_parameters = G2InputParameters {
+                results: results.as_ptr() as *mut projective<G2>,
+                bases: bases_ptr,
+                exps: exps_ptr,
+                n: 0,
+                num_groups: 0,
+                num_windows: 0,
+                window_size: window_size as u32,
+                core_count: self.core_count as u32,
+                cuda_info,
+                _phantom_0: PhantomData,
+            };
+            unsafe { G2_multiexp_chunk_size(input_parameters) }
+        } else {
+            return Err(GPUError::Simple("Only E::G1 and E::G2 are supported!"));
+        };
+
+		Ok(chunk_size as usize)
+	}
+
     pub fn multiexp<G>(
         &mut self,
         bases: &[G],

@@ -67,6 +67,22 @@ State G2_multiexp_cuda(G2InputParameters p);
 #ifdef __cplusplus
 extern "C" {
 #endif
+uint64_t G1_multiexp_chunk_size(G1InputParameters p);
+#ifdef __cplusplus
+}
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+uint64_t G2_multiexp_chunk_size(G2InputParameters p);
+#ifdef __cplusplus
+}
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 State Fr_radix_fft(FFTInputParameters p);
 #ifdef __cplusplus
 }

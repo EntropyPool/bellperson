@@ -233,6 +233,10 @@ where
     }
 }
 
+fn type_of<T>(_: &T) -> &str {
+    std::any::type_name::<T>()
+}
+
 // A struct that containts several multiexp kernels for different devices
 pub struct MultiexpKernel<E>
 where
@@ -354,11 +358,10 @@ where
                             .zip(self.kernels.par_iter_mut())
                             .map(|((bases, exps), kern)| -> Result<<G as CurveAffine>::Projective, GPUError> {
                                 let mut acc = <G as CurveAffine>::Projective::zero();
-                                let mut jack_chunk = kern.n;
-                                if TypeId::of::<G>() == TypeId::of::<E::G2Affine>() {
-                                    jack_chunk = (jack_chunk as f32 / kern.g2_chunk_divider).ceil() as usize;
-                                }
-                                info!("jack chunk {} kernel n {} chunk size {}", jack_chunk, kern.n, chunk_size);
+								let mem_limit = kern.multiexp_chunk_size(bases, exps).expect("fail to get gpu memory limit");
+                                let mut jack_chunk = std::cmp::min(kern.n, mem_limit);
+                                info!("jack chunk {} kernel n {} chunk size {} base size {} base type {} mem limit {}",
+									jack_chunk, kern.n, chunk_size, std::mem::size_of::<G>(), type_of(&bases[0]), mem_limit);
                                 for (bases, exps) in bases.chunks(jack_chunk).zip(exps.chunks(jack_chunk)) {
                                     let result = kern.multiexp(bases, exps, bases.len())?;
                                     acc.add_assign(&result);
