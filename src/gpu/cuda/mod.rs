@@ -13,7 +13,7 @@ use groupy::{CurveAffine, CurveProjective};
 use crate::bls::Engine;
 use rust_gpu_tools::opencl;
 use std::cmp::min;
-
+use log::info;
 use super::multiexp::{
     calc_best_chunk_size, calc_chunk_size, calc_num_groups, calc_window_size, exp_size,
 };
@@ -182,7 +182,7 @@ pub struct FFTKernel<E>
 where
     E: Engine,
 {
-    gpu_id:usize,
+    gpu_id: u32,
     pq: Vec<E::Fr>,
     omegas: Vec<E::Fr>,
     _lock: locks::GPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
@@ -206,7 +206,7 @@ where
         info!("FFT: Use Device {}.", gpu_id);
 
         Ok(FFTKernel {
-            gpu_id,
+            gpu_id as u32,
             pq: vec![],
             omegas: vec![E::Fr::zero(); 32],
             _lock: lock,
