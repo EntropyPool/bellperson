@@ -31,8 +31,8 @@ lazy_static::lazy_static! {
             ("Tesla T4".to_string(), GPUInfo{core_count: 2560, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
             ("Quadro M5000".to_string(), GPUInfo{core_count: 2048, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
 
-            ("GeForce RTX 3090".to_string(), GPUInfo{core_count: 10496, max_window_size: 9, chunk_size_scale: 80, best_chunk_size_scale: 80, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.05}),
-            ("GeForce RTX 3080".to_string(), GPUInfo{core_count: 8830, max_window_size: 9, chunk_size_scale: 25, best_chunk_size_scale: 25, g2_chunk_divider: 2 as f32, reserved_mem_ratio: 0.2}),
+            ("GeForce RTX 3090".to_string(), GPUInfo{core_count: 10496, max_window_size: 9, chunk_size_scale: 90, best_chunk_size_scale: 90, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.05}),
+            ("GeForce RTX 3080".to_string(), GPUInfo{core_count: 8830, max_window_size: 9, chunk_size_scale: 24, best_chunk_size_scale: 24, g2_chunk_divider: 2 as f32, reserved_mem_ratio: 0.2}),
             ("GeForce RTX 3070".to_string(), GPUInfo{core_count: 5888, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
 
             // ("GeForce RTX 2080 Ti".to_string(), GPUInfo{core_count: 8704, max_window_size: 8, chunk_size_scale: 92, best_chunk_size_scale: 92, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
