@@ -358,7 +358,7 @@ where
                                 if TypeId::of::<G>() == TypeId::of::<E::G2Affine>() {
                                     jack_chunk = (jack_chunk as f32 / kern.g2_chunk_divider).ceil() as usize;
                                 }
-                                info!("jack chunk {} kernel n {}", jack_chunk, kern.n);
+                                info!("jack chunk {} kernel n {} chunk size {}", jack_chunk, kern.n, chunk_size);
                                 for (bases, exps) in bases.chunks(jack_chunk).zip(exps.chunks(jack_chunk)) {
                                     let result = kern.multiexp(bases, exps, bases.len())?;
                                     acc.add_assign(&result);
