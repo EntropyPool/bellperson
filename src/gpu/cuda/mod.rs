@@ -182,6 +182,7 @@ pub struct FFTKernel<E>
 where
     E: Engine,
 {
+    gpu_id:usize,
     pq: Vec<E::Fr>,
     omegas: Vec<E::Fr>,
     _lock: locks::GPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
@@ -193,17 +194,19 @@ where
     E: Engine,
 {
     pub fn create(priority: bool) -> GPUResult<FFTKernel<E>> {
-        let lock = locks::GPULock::lock(0);
-
         let devices = opencl::Device::all()?;
         if devices.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));
         }
+        let gpu_num = devices.len();
+        let lock = locks::GPULock::lock(gpu_num);
 
         // Select the first device for FFT
-        let device = devices[0].clone();
+        let gpu_id = lock.1;
+        info!("FFT: Use Device {}.", gpu_id);
 
         Ok(FFTKernel {
+            gpu_id,
             pq: vec![],
             omegas: vec![E::Fr::zero(); 32],
             _lock: lock,
@@ -260,8 +263,9 @@ where
             n,
             lgn: log_n,
             max_deg,
-            cuda_info: Default::default(),
+            cuda_info: CudaInfo { device_id: self.gpu_id },
         };
+
         let state = unsafe { Fr_radix_fft(input_parameters) };
         match state {
             State_Init_Error => return Err(GPUError::CUDAInitializationError),
