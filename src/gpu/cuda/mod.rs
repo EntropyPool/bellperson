@@ -202,11 +202,11 @@ where
         let lock = locks::GPULock::lock(gpu_num);
 
         // Select the first device for FFT
-        let gpu_id = lock.1;
-        info!("FFT: Use Device {}.", gpu_id);
+        let gpu = lock.1;
+        info!("FFT: Use Device {}.", gpu);
 
         Ok(FFTKernel {
-            gpu_id as u32,
+            gpu_id: gpu as u32,
             pq: vec![],
             omegas: vec![E::Fr::zero(); 32],
             _lock: lock,
