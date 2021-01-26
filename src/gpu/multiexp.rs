@@ -46,7 +46,6 @@ where
     max_window_size: usize,
     chunk_size_scale: usize,
     best_chunk_size_scale: usize,
-    g2_chunk_divider: f32,
     reserved_mem_ratio: f32,
 
     priority: bool,
@@ -126,7 +125,6 @@ where
         let max_window_size = utils::get_max_window_size(&d);
         let chunk_size_scale = utils::get_chunk_size_scale(&d);
         let best_chunk_size_scale = utils::get_best_chunk_size_scale(&d);
-        let g2_chunk_divider = utils::get_g2_chunk_divider(&d);
         let max_n = calc_chunk_size::<E>(mem, core_count, chunk_size_scale, max_window_size, reserved_mem_ratio);
         let best_n = calc_best_chunk_size(max_window_size, core_count, exp_bits, best_chunk_size_scale);
         let n = std::cmp::min(max_n, best_n);
@@ -137,7 +135,6 @@ where
             max_window_size,
             chunk_size_scale,
             best_chunk_size_scale,
-            g2_chunk_divider,
             reserved_mem_ratio,
             n,
             priority,

@@ -9,7 +9,6 @@ struct GPUInfo {
     max_window_size: usize,
     chunk_size_scale: usize,
     best_chunk_size_scale: usize,
-    g2_chunk_divider: f32,
     reserved_mem_ratio: f32,
 }
 
@@ -17,38 +16,38 @@ lazy_static::lazy_static! {
     static ref GPU_INFOS: HashMap<String, GPUInfo> = {
         let mut gpu_infos : HashMap<String, GPUInfo> = vec![
             // AMD
-            ("gfx1010".to_string(), GPUInfo{core_count: 2560, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
+            ("gfx1010".to_string(), GPUInfo{core_count: 2560, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
             // This value was chosen to give (approximately) empirically best performance for a Radeon Pro VII.
-            ("gfx906".to_string(), GPUInfo{core_count: 7400, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
+            ("gfx906".to_string(), GPUInfo{core_count: 7400, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
 
             // NVIDIA
-            ("Quadro RTX 6000".to_string(), GPUInfo{core_count: 4608, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
+            ("Quadro RTX 6000".to_string(), GPUInfo{core_count: 4608, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
 
-            ("TITAN RTX".to_string(), GPUInfo{core_count: 4608, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
+            ("TITAN RTX".to_string(), GPUInfo{core_count: 4608, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
 
-            ("Tesla V100".to_string(), GPUInfo{core_count: 5120, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
-            ("Tesla P100".to_string(), GPUInfo{core_count: 3584, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
-            ("Tesla T4".to_string(), GPUInfo{core_count: 2560, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
-            ("Quadro M5000".to_string(), GPUInfo{core_count: 2048, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
+            ("Tesla V100".to_string(), GPUInfo{core_count: 5120, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
+            ("Tesla P100".to_string(), GPUInfo{core_count: 3584, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
+            ("Tesla T4".to_string(), GPUInfo{core_count: 2560, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
+            ("Quadro M5000".to_string(), GPUInfo{core_count: 2048, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
 
-            ("GeForce RTX 3090".to_string(), GPUInfo{core_count: 10496, max_window_size: 9, chunk_size_scale: 100, best_chunk_size_scale: 100, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.05}),
-            ("GeForce RTX 3080".to_string(), GPUInfo{core_count: 8830, max_window_size: 9, chunk_size_scale: 24, best_chunk_size_scale: 24, g2_chunk_divider: 2 as f32, reserved_mem_ratio: 0.2}),
-            ("GeForce RTX 3070".to_string(), GPUInfo{core_count: 5888, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
+            ("GeForce RTX 3090".to_string(), GPUInfo{core_count: 10496, max_window_size: 9, chunk_size_scale: 100, best_chunk_size_scale: 100, reserved_mem_ratio: 0.05}),
+            ("GeForce RTX 3080".to_string(), GPUInfo{core_count: 8830, max_window_size: 9, chunk_size_scale: 24, best_chunk_size_scale: 24, reserved_mem_ratio: 0.2}),
+            ("GeForce RTX 3070".to_string(), GPUInfo{core_count: 5888, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
 
-            // ("GeForce RTX 2080 Ti".to_string(), GPUInfo{core_count: 8704, max_window_size: 8, chunk_size_scale: 92, best_chunk_size_scale: 92, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
-            ("GeForce RTX 2080 Ti".to_string(), GPUInfo{core_count: 8704, max_window_size: 9, chunk_size_scale: 29, best_chunk_size_scale: 29, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
+            // ("GeForce RTX 2080 Ti".to_string(), GPUInfo{core_count: 8704, max_window_size: 8, chunk_size_scale: 92, best_chunk_size_scale: 92, reserved_mem_ratio: 0.2}),
+            ("GeForce RTX 2080 Ti".to_string(), GPUInfo{core_count: 8704, max_window_size: 9, chunk_size_scale: 29, best_chunk_size_scale: 29, reserved_mem_ratio: 0.2}),
 
-            ("GeForce RTX 2080 SUPER".to_string(), GPUInfo{core_count: 3072, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
-            ("GeForce RTX 2080".to_string(), GPUInfo{core_count: 2944, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
-            ("GeForce RTX 2070 SUPER".to_string(), GPUInfo{core_count: 2560, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
+            ("GeForce RTX 2080 SUPER".to_string(), GPUInfo{core_count: 3072, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
+            ("GeForce RTX 2080".to_string(), GPUInfo{core_count: 2944, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
+            ("GeForce RTX 2070 SUPER".to_string(), GPUInfo{core_count: 2560, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
 
-            ("GeForce GTX 1080 Ti".to_string(), GPUInfo{core_count: 3584, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
-            ("GeForce GTX 1080".to_string(), GPUInfo{core_count: 2560, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
-            ("GeForce GTX 2060".to_string(), GPUInfo{core_count: 1920, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
-            ("GeForce GTX 1660 Ti".to_string(), GPUInfo{core_count: 1536, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
-            ("GeForce GTX 1060".to_string(), GPUInfo{core_count: 1280, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
-            ("GeForce GTX 1650 SUPER".to_string(), GPUInfo{core_count: 1280, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
-            ("GeForce GTX 1650".to_string(), GPUInfo{core_count: 896, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, g2_chunk_divider: 1 as f32, reserved_mem_ratio: 0.2}),
+            ("GeForce GTX 1080 Ti".to_string(), GPUInfo{core_count: 3584, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
+            ("GeForce GTX 1080".to_string(), GPUInfo{core_count: 2560, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
+            ("GeForce GTX 2060".to_string(), GPUInfo{core_count: 1920, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
+            ("GeForce GTX 1660 Ti".to_string(), GPUInfo{core_count: 1536, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
+            ("GeForce GTX 1060".to_string(), GPUInfo{core_count: 1280, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
+            ("GeForce GTX 1650 SUPER".to_string(), GPUInfo{core_count: 1280, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
+            ("GeForce GTX 1650".to_string(), GPUInfo{core_count: 896, max_window_size: 0, chunk_size_scale: 0, best_chunk_size_scale: 0, reserved_mem_ratio: 0.2}),
         ].into_iter().collect();
 
         match env::var("BELLMAN_CUSTOM_GPU").and_then(|var| {
@@ -76,25 +75,19 @@ lazy_static::lazy_static! {
                 } else {
                     2
                 };
-                let g2_chunk_divider : f32 = if 6 <= splitted.len() {
+                let reserved_mem_ratio : f32 = if 6 <= splitted.len() {
                     splitted[5].trim().parse().expect("Invalid BELLMAN_CUSTOM_GPU!")
-                } else {
-                    1 as f32
-                };
-                let reserved_mem_ratio : f32 = if 7 <= splitted.len() {
-                    splitted[6].trim().parse().expect("Invalid BELLMAN_CUSTOM_GPU!")
                 } else {
                     0.2
                 };
-                info!("Adding \"{}\" to GPU list {} CUDA cores {} max window size {} chunk size scale {} best chunk size scale {} g2 chunk divider {} reserved mem ratio.",
-                      name, cores, max_window_size, chunk_size_scale, best_chunk_size_scale, g2_chunk_divider, reserved_mem_ratio);
+                info!("Adding \"{}\" to GPU list {} CUDA cores {} max window size {} chunk size scale {} best chunk size scale {} reserved mem ratio.",
+                      name, cores, max_window_size, chunk_size_scale, best_chunk_size_scale, reserved_mem_ratio);
                 gpu_infos.insert(name,
                                  GPUInfo{
                                      core_count: cores,
                                      max_window_size,
                                      chunk_size_scale,
                                      best_chunk_size_scale,
-                                     g2_chunk_divider,
                                      reserved_mem_ratio,
                                  });
             }
@@ -144,14 +137,6 @@ pub fn get_best_chunk_size_scale(d: &opencl::Device) -> usize {
     match GPU_INFOS.get(&name[..]) {
         Some(&info) => info.best_chunk_size_scale,
         None => 2,
-    }
-}
-
-pub fn get_g2_chunk_divider(d: &opencl::Device) -> f32 {
-    let name = d.name();
-    match GPU_INFOS.get(&name[..]) {
-        Some(&info) => info.g2_chunk_divider,
-        None => 2 as f32,
     }
 }
 
