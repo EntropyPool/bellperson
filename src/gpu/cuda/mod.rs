@@ -13,7 +13,7 @@ use groupy::{CurveAffine, CurveProjective};
 use crate::bls::Engine;
 use rust_gpu_tools::opencl;
 use std::cmp::min;
-
+use log::info;
 use super::multiexp::{
     calc_best_chunk_size, calc_chunk_size, calc_num_groups, calc_window_size, exp_size,
 };
@@ -230,6 +230,7 @@ pub struct FFTKernel<E>
 where
     E: Engine,
 {
+    gpu_id: u32,
     pq: Vec<E::Fr>,
     omegas: Vec<E::Fr>,
     _lock: locks::GPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
@@ -241,17 +242,19 @@ where
     E: Engine,
 {
     pub fn create(priority: bool) -> GPUResult<FFTKernel<E>> {
-        let lock = locks::GPULock::lock(0);
-
         let devices = opencl::Device::all()?;
         if devices.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));
         }
+        let gpu_num = devices.len();
+        let lock = locks::GPULock::lock(gpu_num);
 
-        // Select the first device for FFT
-        let device = devices[0].clone();
+        // Select the device for FFT
+        let gpu = lock.1;
+        info!("FFT: Use Device {}.", gpu);
 
         Ok(FFTKernel {
+            gpu_id: gpu as u32,
             pq: vec![],
             omegas: vec![E::Fr::zero(); 32],
             _lock: lock,
@@ -308,8 +311,9 @@ where
             n,
             lgn: log_n,
             max_deg,
-            cuda_info: Default::default(),
+            cuda_info: CudaInfo { device_id: self.gpu_id },
         };
+
         let state = unsafe { Fr_radix_fft(input_parameters) };
         match state {
             State_Init_Error => return Err(GPUError::CUDAInitializationError),
