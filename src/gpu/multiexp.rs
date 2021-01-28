@@ -89,6 +89,7 @@ pub(crate) fn calc_best_chunk_size(
     max_window_size: usize,
     core_count: usize,
     exp_bits: usize,
+    scale: usize,
 ) -> usize {
     // Best chunk-size (N) can also be calculated using the same logic as calc_window_size:
     // n = e^window_size * window_size * 2 * core_count / exp_bits

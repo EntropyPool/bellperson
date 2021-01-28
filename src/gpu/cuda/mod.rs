@@ -4,8 +4,6 @@
 
 use std::{any::TypeId, marker::PhantomData};
 
-#[cfg(feature = "blst")]
-use blstrs::Engine;
 use ff::{Field, PrimeField, ScalarEngine};
 use groupy::{CurveAffine, CurveProjective};
 use crate::bls::Engine;
