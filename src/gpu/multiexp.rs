@@ -39,6 +39,7 @@ pub struct SingleMultiexpKernel<E>
 where
     E: Engine,
 {
+    gpu_id: u32,
     program: opencl::Program,
 
     core_count: usize,
@@ -115,7 +116,7 @@ impl<E> SingleMultiexpKernel<E>
 where
     E: Engine,
 {
-    pub fn create(d: opencl::Device, priority: bool) -> GPUResult<SingleMultiexpKernel<E>> {
+    pub fn create(d: opencl::Device, priority: bool, gpuid: u32) -> GPUResult<SingleMultiexpKernel<E>> {
         let src = sources::kernel::<E>(d.brand() == opencl::Brand::Nvidia);
 
         let exp_bits = exp_size::<E>() * 8;
@@ -130,6 +131,7 @@ where
         let n = std::cmp::min(max_n, best_n);
 
         Ok(SingleMultiexpKernel {
+            gpu_id: gpuid,
             program: opencl::Program::from_opencl(d, &src)?,
             core_count,
             max_window_size,
@@ -253,7 +255,7 @@ where
         let gpu = lock.1;
         let device = devices[gpu].clone();
 
-        let kernels = vec!(MySingleMultiexpKernel::<E>::create(device, priority)?);
+        let kernels = vec!(MySingleMultiexpKernel::<E>::create(device, priority, gpu as u32)?);
 
         if kernels.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));

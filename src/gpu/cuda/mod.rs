@@ -12,6 +12,7 @@ use groupy::{CurveAffine, CurveProjective};
 // use blstrs::Engine;
 use crate::bls::Engine;
 use rust_gpu_tools::opencl;
+use rust_gpu_tools::opencl::Device;
 use std::cmp::min;
 use log::info;
 use super::multiexp::{
@@ -37,6 +38,7 @@ pub struct SingleMultiexpKernel<E>
 where
     E: Engine,
 {
+    pub(crate) gpu_id: u32,
     pub(crate) program: opencl::Program,
     pub(crate) exp_bits: usize,
     pub(crate) core_count: usize,
@@ -53,7 +55,7 @@ impl<E> SingleMultiexpKernel<E>
 where
     E: Engine,
 {
-    pub fn create(d: opencl::Device, priority: bool) -> GPUResult<SingleMultiexpKernel<E>> {
+    pub fn create(d: opencl::Device, priority: bool, gpuid: u32) -> GPUResult<SingleMultiexpKernel<E>> {
         let src = sources::kernel::<E>(d.brand() == opencl::Brand::Nvidia);
 
         let exp_bits = exp_size::<E>() * 8;
@@ -68,6 +70,7 @@ where
         let n = min(max_n, best_n);
 
         Ok(SingleMultiexpKernel {
+            gpu_id: gpuid,
             program: opencl::Program::from_opencl(d, &src)?,
             exp_bits,
             core_count,
@@ -89,8 +92,9 @@ where
     where
         G: CurveAffine,
 	{
+
         let exps_ptr = exps.as_ptr() as *mut Fr;
-        let cuda_info: CudaInfo = Default::default();
+        let cuda_info: CudaInfo = CudaInfo {device_id: self.gpu_id};
         let exp_bits = exp_size::<E>() * 8;
         let window_size = calc_window_size(0 as usize, exp_bits, self.core_count, self.max_window_size);
         let mut results = vec![<G as CurveAffine>::Projective::zero(); 1];
@@ -158,7 +162,7 @@ where
         // Each thread will use `num_groups` * `num_windows` * `bucket_len` buckets.
 
         let mut results = vec![<G as CurveAffine>::Projective::zero(); 2 * self.core_count];
-        let cuda_info: CudaInfo = Default::default();
+        let cuda_info: CudaInfo = CudaInfo {device_id: self.gpu_id};
         let exps_ptr = exps.as_ptr() as *mut Fr;
 
         let state = if TypeId::of::<G>() == TypeId::of::<E::G1Affine>() {
@@ -242,6 +246,7 @@ where
     E: Engine,
 {
     pub fn create(priority: bool) -> GPUResult<FFTKernel<E>> {
+
         let devices = opencl::Device::all()?;
         if devices.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));
@@ -264,6 +269,7 @@ where
 
     /// Share some precalculated values between threads to boost the performance
     fn setup_pq_omegas(&mut self, omega: &E::Fr, n: usize, max_deg: u32) -> GPUResult<()> {
+
         // Precalculate:
         // [omega^(0/(2^(deg-1))), omega^(1/(2^(deg-1))), ..., omega^((2^(deg-1)-1)/(2^(deg-1)))]
         self.pq = vec![E::Fr::zero(); 1 << max_deg >> 1];
@@ -290,6 +296,7 @@ where
     /// * `omega` - Special value `omega` is used for FFT over finite-fields
     /// * `log_n` - Specifies log2 of number of elements
     pub fn radix_fft(&mut self, a: &mut [E::Fr], omega: &E::Fr, log_n: u32) -> GPUResult<()> {
+
         let n = 1 << log_n;
         let max_deg = min(MAX_LOG2_RADIX, log_n);
         self.setup_pq_omegas(omega, n, max_deg)?;
@@ -321,6 +328,7 @@ where
             State_Compute_Ok => {}
             _ => return Err(GPUError::CUDAUnknownState(state as usize)),
         }
+
         Ok(())
     }
 }

@@ -41,7 +41,7 @@ impl GPULock {
 }
 impl Drop for GPULock {
     fn drop(&mut self) {
-        debug!("GPU lock released!");
+        info!("GPU lock released!");
     }
 }
 
