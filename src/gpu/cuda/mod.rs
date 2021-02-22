@@ -83,7 +83,7 @@ where
     ) -> GPUResult<usize>
     where
         G: CurveAffine,
-	{
+    {
 
         let exps_ptr = exps.as_ptr() as *mut Fr;
         let cuda_info: CudaInfo = CudaInfo {device_id: self.gpu_id};
@@ -125,8 +125,8 @@ where
             return Err(GPUError::Simple("Only E::G1 and E::G2 are supported!"));
         };
 
-		Ok(chunk_size as usize)
-	}
+        Ok(chunk_size as usize)
+    }
 
     pub fn multiexp<G>(
         &mut self,
