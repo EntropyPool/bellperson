@@ -10,7 +10,12 @@
 template<typename T>
 static uint64_t multiexp_chunk_size(InputParameters<T> p) {
 	size_t free, total;
+    CUDA_CHECK(cudaSetDevice(p.cuda_info.device_id));
+    CUcontext context;
+    cuCtxCreate(&context, 0, p.cuda_info.device_id);
+
 	CUDA_CHECK(cudaMemGetInfo(&free, &total));
+    cuCtxDestroy(context);
 
     size_t bucket_len = 1 << p.window_size;
     size_t buckets_size = sizeof(projective<T>) * (2 * p.core_count * bucket_len);
@@ -20,6 +25,9 @@ static uint64_t multiexp_chunk_size(InputParameters<T> p) {
 	if (usable < 0) {
 		return 0;
 	}
+
+	printf("free %ld total %ld usable %ld buckets_size %ld results_size %ld\n",
+            free, total, usable, buckets_size, results_size);
 
 	return usable / (sizeof(affine<T>) + sizeof(Fr));
 }
