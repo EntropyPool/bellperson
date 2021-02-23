@@ -21,15 +21,12 @@ static uint64_t multiexp_chunk_size(InputParameters<T> p) {
     size_t buckets_size = sizeof(projective<T>) * (2 * p.core_count * bucket_len);
     size_t results_size = sizeof(projective<T>) * (2 * p.core_count);
 
-	size_t usable = free - buckets_size - results_size - 512 * 1024 * 1024;
-	if (usable < 0) {
-		return 0;
-	}
+    size_t usable = free - buckets_size - results_size - 512 * 1024 * 1024;
+    if (usable < 0) {
+        return 0;
+    }
 
-	printf("free %ld total %ld usable %ld buckets_size %ld results_size %ld\n",
-            free, total, usable, buckets_size, results_size);
-
-	return usable / (sizeof(affine<T>) + sizeof(Fr));
+    return usable / (sizeof(affine<T>) + sizeof(Fr));
 }
 
 template<typename T>
@@ -58,7 +55,7 @@ static State multiexp_cuda(InputParameters<T> p) {
         printf("n: %d, num_groups: %d, num_windows: %d, window_size: %d\n",
                 p.n, p.num_groups, p.num_windows, p.window_size);
         printf("core_count = %d\n", p.core_count);
-		printf("GPU memory size: %llu\n", bases_size + buckets_size + results_size + exps_size);
+        printf("GPU memory size: %llu\n", bases_size + buckets_size + results_size + exps_size);
     }
 
     CUDA_CHECK(cudaMalloc((void**)&d_bases, bases_size));
