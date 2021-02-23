@@ -247,7 +247,7 @@ where
     E: Engine,
 {
     kernels: Vec<MySingleMultiexpKernel<E>>,
-    _lock: locks::GPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
+    _locks: Vec<locks::GPULock>, // RFC 1857: struct fields are dropped in the same order as they are declared.
 }
 
 impl<E> MultiexpKernel<E>
@@ -256,11 +256,25 @@ where
 {
     pub fn create(priority: bool) -> GPUResult<MultiexpKernel<E>> {
         let devices = opencl::Device::all()?;
-        let lock = locks::GPULock::lock(devices.len());
-        let gpu = lock.1;
-        let device = devices[gpu].clone();
+        let mut kernels = Vec::new();
+        let mut locks = Vec::new();
 
-        let kernels = vec!(MySingleMultiexpKernel::<E>::create(device, priority, gpu as u32)?);
+        for device in devices.iter() {
+            let lock = match locks::GPULock::lock(devices.len(), false) {
+                Ok(lock) => lock,
+                Err(..) =>{
+                    break
+                },
+            };
+            let gpu = lock.1;
+            let device = devices[gpu].clone();
+            let kernel = MySingleMultiexpKernel::<E>::create(device, priority, gpu as u32)?;
+            kernels.push(kernel);
+            locks.push(lock);
+            if !std::env::var("FFI_MULTIEXP_USE_ALL_GPU").is_ok() {
+                break
+            }
+        }
 
         if kernels.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));
@@ -279,7 +293,7 @@ where
         }
         Ok(MultiexpKernel::<E> {
             kernels,
-            _lock: lock,
+            _locks: locks,
         })
     }
 

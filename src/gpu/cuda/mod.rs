@@ -244,7 +244,7 @@ where
             return Err(GPUError::Simple("No working GPUs found!"));
         }
         let gpu_num = devices.len();
-        let lock = locks::GPULock::lock(gpu_num);
+        let lock = locks::GPULock::lock(gpu_num, true)?;
 
         // Select the device for FFT
         let gpu = lock.1;

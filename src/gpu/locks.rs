@@ -16,29 +16,44 @@ fn tmp_path(filename: &str) -> PathBuf {
 #[derive(Debug)]
 pub struct GPULock(File, pub(crate) usize);
 impl GPULock {
-    pub fn lock(gpu_num:usize) -> GPULock {
+    pub fn lock(gpu_num: usize, block: bool) -> GPUResult<GPULock>
+    {
         info!("Acquiring GPU lock...");
         let mut lock;
         let mut gpu_index = 0;
+        let mut locked = false;
         loop {
             let gpu_name = format!("gpu{}.lock", gpu_index);
             lock = File::create(tmp_path(gpu_name.as_str())).unwrap();
             match lock.try_lock_exclusive() {
-                Ok(..) => { debug!("{} acquired.", gpu_name); },
+                Ok(..) => {
+                    debug!("{} acquired.", gpu_name);
+                    locked = true;
+                },
                 Err(..) => {
                     gpu_index += 1;
-                    gpu_index = gpu_index % gpu_num;
-                    info!("try to lock another gpu {}.", gpu_index);
-                    thread::sleep(Duration::from_millis(1000));
-                    continue;
+                    if gpu_num <= gpu_index && !block {
+                        break
+                    } else {
+                        gpu_index = gpu_index % gpu_num;
+                        info!("try to lock another gpu {}.", gpu_index);
+                        thread::sleep(Duration::from_millis(1000));
+                        continue;
+                    }
                 },
             };
             break;
         }
+
+        if !locked {
+            return Err(GPUError::GPUTaken);
+        }
+
         info!("GPU {} lock acquired!",gpu_index);
-        GPULock(lock, gpu_index)
+        return Ok(GPULock(lock, gpu_index));
     }
 }
+
 impl Drop for GPULock {
     fn drop(&mut self) {
         info!("GPU lock released!");
