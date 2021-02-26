@@ -1,5 +1,7 @@
 use std::sync::Arc;
 use std::time::Instant;
+// use std::thread;
+use std::sync::mpsc;
 
 use crate::bls::Engine;
 use ff::{Field, PrimeField};
@@ -11,11 +13,16 @@ use super::{ParameterSource, Proof};
 use crate::domain::{EvaluationDomain, Scalar};
 use crate::gpu::{LockedFFTKernel, LockedMultiexpKernel};
 use crate::multicore::{Worker, THREAD_POOL};
-use crate::multiexp::{multiexp, DensityTracker, FullDensity};
+use crate::multiexp::{multiexp, multiexp_fulldensity, density_filter, multiexp_skipdensity, DensityTracker, FullDensity};
 use crate::{
     Circuit, ConstraintSystem, Index, LinearCombination, SynthesisError, Variable, BELLMAN_VERSION,
 };
 use log::{info, trace};
+
+// use crossbeam_channel::{bounded, Receiver};
+
+extern crate scoped_threadpool;
+use scoped_threadpool::Pool;
 
 #[cfg(feature = "gpu")]
 use crate::gpu::PriorityLock;
@@ -273,17 +280,46 @@ where
 {
     info!("Bellperson {} is being used!", BELLMAN_VERSION);
 
-    // Preparing things for the proofs is done a lot in parallel with the help of Rayon. Make
-    // sure that those things run on the correct thread pool.
-    let (start, mut provers, input_assignments, aux_assignments) =
-        THREAD_POOL.install(|| create_proof_batch_priority_inner(circuits))?;
+    THREAD_POOL.install(|| create_proof_batch_priority_inner(circuits, params, r_s, s_s, priority))
+}
 
-    // The rest of the proving also has parallelism, but not on the outer loops, but within e.g. the
-    // multiexp calculations. This is what the `Worker` is used for. It is important that calling
-    // `wait()` on the worker happens *outside* the thread pool, else deadlocks can happen.
+fn create_proof_batch_priority_inner<E, C, P: ParameterSource<E>>(
+    circuits: Vec<C>,
+    params: P,
+    r_s: Vec<E::Fr>,
+    s_s: Vec<E::Fr>,
+    priority: bool,
+) -> Result<Vec<Proof<E>>, SynthesisError>
+where
+    E: Engine,
+    C: Circuit<E> + Send,
+{
+    // build provers
+    info!("ZQ: build provers start");
+    let now = Instant::now();
+    let mut provers = circuits
+        .into_par_iter()
+        .map(|circuit| -> Result<_, SynthesisError> {
+            let mut prover = ProvingAssignment::new();
+            prover.alloc_input(|| "", || Ok(E::Fr::one()))?;
+            circuit.synthesize(&mut prover)?;
+            for i in 0..prover.input_assignment.len() {
+                prover.enforce(|| "", |lc| lc + Variable(Index::Input(i)), |lc| lc, |lc| lc);
+            }
+            Ok(prover)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    info!("ZQ: build provers  end: {:?}", now.elapsed());
+
+
+    // Start prover timer
+    info!("ZQ: starting proof timer");
+    let start = Instant::now();
+    info!("starting proof timer");
+
     let worker = Worker::new();
     let input_len = provers[0].input_assignment.len();
-    let vk = params.get_vk(input_len)?.clone();
+    let vk = params.get_vk(input_len)?;
     let n = provers[0].a.len();
 
     // Make sure all circuits have the same input len.
@@ -300,16 +336,84 @@ where
         log_d += 1;
     }
 
-    #[cfg(feature = "gpu")]
-    let prio_lock = if priority {
-        trace!("acquiring priority lock");
-        Some(PriorityLock::lock())
-    } else {
-        None
-    };
 
+    // get params
+    info!("ZQ: get params start");
+    let now = Instant::now();
+    let (tx_h, rx_h) = mpsc::channel();
+    let (tx_l, rx_l) = mpsc::channel();
+    let (tx_a, rx_a) = mpsc::channel();
+    let (tx_bg1, rx_bg1) = mpsc::channel();
+    let (tx_bg2, rx_bg2) = mpsc::channel();
+    let (tx_assignments, rx_assignments) = mpsc::channel();
+    let input_assignment_len = provers[0].input_assignment.len();
+    let mut pool = Pool::new(6);
+    pool.scoped(|scoped| {
+        let params = &params;
+        let provers = &mut provers;
+        // h_params
+        scoped.execute(move || {
+            let h_params = params.get_h(0).unwrap();
+            tx_h.send(h_params).unwrap();
+        });
+        // l_params
+        scoped.execute(move || {
+            let l_params = params.get_l(0).unwrap();
+            tx_l.send(l_params).unwrap();
+        });
+        // a_params
+        scoped.execute(move || {
+            let (a_inputs_source, a_aux_source) = params.get_a(input_assignment_len,0).unwrap();
+            tx_a.send((a_inputs_source, a_aux_source)).unwrap();
+        });
+        // bg1_params
+        scoped.execute(move || {
+            let (b_g1_inputs_source, b_g1_aux_source) = params.get_b_g1(1,0).unwrap();
+            tx_bg1.send((b_g1_inputs_source, b_g1_aux_source)).unwrap();
+        });
+        // bg2_params
+        scoped.execute(move || {
+            let (b_g2_inputs_source, b_g2_aux_source) = params.get_b_g2(1,0).unwrap();
+            tx_bg2.send((b_g2_inputs_source, b_g2_aux_source)).unwrap();
+        });
+        // assignments
+        scoped.execute(move || {
+            let assignments = provers
+                .par_iter_mut()
+                .map(|prover| {
+                    let _input_assignment = std::mem::replace(&mut prover.input_assignment, Vec::new());
+                    let _aux_assignment = std::mem::replace(&mut prover.aux_assignment, Vec::new());
+                    let input_assignment = Arc::new(
+                        _input_assignment
+                            .into_iter()
+                            .map(|s| s.into_repr())
+                            .collect::<Vec<_>>(),
+                    );
+                    let aux_assignment = Arc::new(
+                        _aux_assignment
+                            .into_iter()
+                            .map(|s| s.into_repr())
+                            .collect::<Vec<_>>(),
+                    );
+                    (input_assignment, aux_assignment)
+                })
+                .collect::<Vec<_>>();
+            tx_assignments.send(assignments).unwrap();
+        });
+    });
+    // waiting params
+    info!("ZQ: waiting params...");
+    let h_params = rx_h.recv().unwrap();
+    let l_params = rx_l.recv().unwrap();
+    let (a_inputs_source, a_aux_source) = rx_a.recv().unwrap();
+    let (b_g1_inputs_source, b_g1_aux_source) = rx_bg1.recv().unwrap();
+    let (b_g2_inputs_source, b_g2_aux_source) = rx_bg2.recv().unwrap();
+    let assignments = rx_assignments.recv().unwrap();
+    info!("ZQ: get params end: {:?}", now.elapsed());
+
+    info!("ZQ: a_s start");
+    let now = Instant::now();
     let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
-
     let a_s = provers
         .iter_mut()
         .map(|prover| {
@@ -333,25 +437,28 @@ where
             drop(c);
             a.divide_by_z_on_coset(&worker);
             a.icoset_fft(&worker, &mut fft_kern)?;
+
             let mut a = a.into_coeffs();
             let a_len = a.len() - 1;
             a.truncate(a_len);
 
-            Ok(Arc::new(
-                a.into_iter().map(|s| s.0.into_repr()).collect::<Vec<_>>(),
-            ))
+            Ok(Arc::new(a.into_par_iter().map(|s| s.0.into_repr()).collect::<Vec<_>>()))
         })
         .collect::<Result<Vec<_>, SynthesisError>>()?;
-
+    info!("ZQ: a_s end: {:?}", now.elapsed());
     drop(fft_kern);
+
+
     let mut multiexp_kern = Some(LockedMultiexpKernel::<E>::new(log_d, priority));
 
+    info!("ZQ: h_s start");
+    let now = Instant::now();
     let h_s = a_s
         .into_iter()
         .map(|a| {
-            let h = multiexp(
+            let h = multiexp_fulldensity(
                 &worker,
-                params.get_h(a.len())?,
+                h_params.clone(),
                 FullDensity,
                 a,
                 &mut multiexp_kern,
@@ -359,13 +466,16 @@ where
             Ok(h)
         })
         .collect::<Result<Vec<_>, SynthesisError>>()?;
+    info!("ZQ: h_s end: {:?}", now.elapsed());
 
-    let l_s = aux_assignments
+    info!("ZQ: l_s start");
+    let now = Instant::now();
+    let l_s = assignments
         .iter()
-        .map(|aux_assignment| {
-            let l = multiexp(
+        .map(|(_,aux_assignment)| {
+            let l = multiexp_fulldensity(
                 &worker,
-                params.get_l(aux_assignment.len())?,
+                l_params.clone(),
                 FullDensity,
                 aux_assignment.clone(),
                 &mut multiexp_kern,
@@ -373,72 +483,95 @@ where
             Ok(l)
         })
         .collect::<Result<Vec<_>, SynthesisError>>()?;
+    info!("ZQ: l_s end: {:?}", now.elapsed());
 
+
+    info!("ZQ: inputs start");
+    let now = Instant::now();
     let inputs = provers
         .into_iter()
-        .zip(input_assignments.iter())
-        .zip(aux_assignments.iter())
-        .map(|((prover, input_assignment), aux_assignment)| {
-            let a_aux_density_total = prover.a_aux_density.get_total_density();
+        .zip(assignments.into_iter())
+        .map(|(prover, (input_assignment,aux_assignment))| {
+            let b_input_density = Arc::new(prover.b_input_density);
+            let b_aux_density = Arc::new(prover.b_aux_density);
 
-            let (a_inputs_source, a_aux_source) =
-                params.get_a(input_assignment.len(), a_aux_density_total)?;
-
-            let a_inputs = multiexp(
+            let a_inputs = multiexp_fulldensity(
                 &worker,
-                a_inputs_source,
+                a_inputs_source.clone(),
                 FullDensity,
                 input_assignment.clone(),
                 &mut multiexp_kern,
             );
 
-            let a_aux = multiexp(
-                &worker,
-                a_aux_source,
+            let (
+                a_aux_bss,
+                a_aux_exps,
+                a_aux_skip,
+                a_aux_n
+            ) = density_filter(
+                a_aux_source.clone(),
                 Arc::new(prover.a_aux_density),
-                aux_assignment.clone(),
+                aux_assignment.clone()
+            );
+            let a_aux = multiexp_skipdensity(
+                &worker,
+                a_aux_bss,
+                a_aux_exps,
+                a_aux_skip,
+                a_aux_n,
                 &mut multiexp_kern,
             );
 
-            let b_input_density = Arc::new(prover.b_input_density);
-            let b_input_density_total = b_input_density.get_total_density();
-            let b_aux_density = Arc::new(prover.b_aux_density);
-            let b_aux_density_total = b_aux_density.get_total_density();
-
-            let (b_g1_inputs_source, b_g1_aux_source) =
-                params.get_b_g1(b_input_density_total, b_aux_density_total)?;
-
             let b_g1_inputs = multiexp(
                 &worker,
-                b_g1_inputs_source,
+                b_g1_inputs_source.clone(),
                 b_input_density.clone(),
                 input_assignment.clone(),
                 &mut multiexp_kern,
             );
 
-            let b_g1_aux = multiexp(
-                &worker,
-                b_g1_aux_source,
+            let (
+                b_g1_aux_bss,
+                b_g1_aux_exps,
+                b_g1_aux_skip,
+                b_g1_aux_n
+            ) = density_filter(
+                b_g1_aux_source.clone(),
                 b_aux_density.clone(),
-                aux_assignment.clone(),
+                aux_assignment.clone()
+            );
+            let b_g1_aux = multiexp_skipdensity(
+                &worker,
+                b_g1_aux_bss,
+                b_g1_aux_exps,
+                b_g1_aux_skip,
+                b_g1_aux_n,
                 &mut multiexp_kern,
             );
-
-            let (b_g2_inputs_source, b_g2_aux_source) =
-                params.get_b_g2(b_input_density_total, b_aux_density_total)?;
-
             let b_g2_inputs = multiexp(
                 &worker,
-                b_g2_inputs_source,
-                b_input_density,
+                b_g2_inputs_source.clone(),
+                b_input_density.clone(),
                 input_assignment.clone(),
                 &mut multiexp_kern,
             );
-            let b_g2_aux = multiexp(
+
+            let (
+                b_g2_aux_bss,
+                b_g2_aux_exps,
+                b_g2_aux_skip,
+                b_g2_aux_n
+            ) = density_filter(
+                b_g2_aux_source.clone(),
+                b_aux_density.clone(),
+                aux_assignment.clone()
+            );
+            let b_g2_aux = multiexp_skipdensity(
                 &worker,
-                b_g2_aux_source,
-                b_aux_density,
-                aux_assignment.clone(),
+                b_g2_aux_bss,
+                b_g2_aux_exps,
+                b_g2_aux_skip,
+                b_g2_aux_n,
                 &mut multiexp_kern,
             );
 
@@ -452,8 +585,14 @@ where
             ))
         })
         .collect::<Result<Vec<_>, SynthesisError>>()?;
-    drop(multiexp_kern);
 
+    info!("ZQ: inputs end: {:?}", now.elapsed());
+
+    drop(multiexp_kern);
+    #[cfg(feature = "gpu")]
+
+    info!("ZQ: proofs start");
+    let now = Instant::now();
     let proofs = h_s
         .into_iter()
         .zip(l_s.into_iter())
@@ -509,82 +648,11 @@ where
             },
         )
         .collect::<Result<Vec<_>, SynthesisError>>()?;
+    info!("ZQ: proofs end: {:?}", now.elapsed());
 
-    #[cfg(feature = "gpu")]
-    {
-        trace!("dropping priority lock");
-        drop(prio_lock);
-    }
-
-    let proof_time = start.elapsed();
-    info!("prover time: {:?}", proof_time);
+    info!("ZQ: prover time: {:?}", start.elapsed());
 
     Ok(proofs)
-}
-
-fn create_proof_batch_priority_inner<E, C>(
-    circuits: Vec<C>,
-) -> Result<
-    (
-        Instant,
-        std::vec::Vec<ProvingAssignment<E>>,
-        std::vec::Vec<std::sync::Arc<std::vec::Vec<<E::Fr as PrimeField>::Repr>>>,
-        std::vec::Vec<std::sync::Arc<std::vec::Vec<<E::Fr as PrimeField>::Repr>>>,
-    ),
-    SynthesisError,
->
-where
-    E: Engine,
-    C: Circuit<E> + Send,
-{
-    let mut provers = circuits
-        .into_par_iter()
-        .map(|circuit| -> Result<_, SynthesisError> {
-            let mut prover = ProvingAssignment::new();
-
-            prover.alloc_input(|| "", || Ok(E::Fr::one()))?;
-
-            circuit.synthesize(&mut prover)?;
-
-            for i in 0..prover.input_assignment.len() {
-                prover.enforce(|| "", |lc| lc + Variable(Index::Input(i)), |lc| lc, |lc| lc);
-            }
-
-            Ok(prover)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    // Start fft/multiexp prover timer
-    let start = Instant::now();
-    info!("starting proof timer");
-
-    let input_assignments = provers
-        .par_iter_mut()
-        .map(|prover| {
-            let input_assignment = std::mem::replace(&mut prover.input_assignment, Vec::new());
-            Arc::new(
-                input_assignment
-                    .into_iter()
-                    .map(|s| s.into_repr())
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let aux_assignments = provers
-        .par_iter_mut()
-        .map(|prover| {
-            let aux_assignment = std::mem::replace(&mut prover.aux_assignment, Vec::new());
-            Arc::new(
-                aux_assignment
-                    .into_iter()
-                    .map(|s| s.into_repr())
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    Ok((start, provers, input_assignments, aux_assignments))
 }
 
 #[cfg(test)]

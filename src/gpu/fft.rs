@@ -28,15 +28,16 @@ where
     E: Engine,
 {
     pub fn create(priority: bool) -> GPUResult<FFTKernel<E>> {
-        let lock = locks::GPULock::lock();
-
         let devices = opencl::Device::all()?;
         if devices.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));
         }
+        let gpu_num = devices.len();
+        let lock = locks::GPULock::lock(gpu_num, true)?;
 
         // Select the first device for FFT
-        let device = devices[0].clone();
+        let gpu = lock.1;
+        let device = devices[gpu].clone();
 
         let src = sources::kernel::<E>(device.brand() == opencl::Brand::Nvidia);
 
@@ -45,7 +46,7 @@ where
         let omegas_buffer = program.create_buffer::<E::Fr>(LOG2_MAX_ELEMENTS)?;
 
         info!("FFT: 1 working device(s) selected.");
-        info!("FFT: Device 0: {}", program.device().name());
+        info!("FFT: Device {}: {}", gpu, program.device().name());
 
         Ok(FFTKernel {
             program,
@@ -70,9 +71,9 @@ where
         deg: u32,
         max_deg: u32,
     ) -> GPUResult<()> {
-        if locks::PriorityLock::should_break(self.priority) {
-            return Err(GPUError::GPUTaken);
-        }
+        // if locks::PriorityLock::should_break(self.priority) {
+        //     return Err(GPUError::GPUTaken);
+        // }
 
         let n = 1u32 << log_n;
         let local_work_size = 1 << cmp::min(deg - 1, MAX_LOG2_LOCAL_WORK_SIZE);
