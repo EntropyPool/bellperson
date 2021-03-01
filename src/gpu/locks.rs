@@ -105,8 +105,8 @@ impl Drop for PriorityLock {
 }
 
 use super::error::{GPUError, GPUResult};
-use super::fft::FFTKernel;
 use super::multiexp::MultiexpKernel;
+use super::FFTKernel;
 use crate::bls::Engine;
 use crate::domain::create_fft_kernel;
 use crate::multiexp::create_multiexp_kernel;
