@@ -32,6 +32,14 @@ mod multiexp;
 #[cfg(feature = "gpu")]
 pub use self::multiexp::*;
 
+#[cfg(feature = "cuda")]
+mod cuda;
+
+#[cfg(all(not(feature = "cuda"), feature = "gpu"))]
+pub use self::fft::FFTKernel;
+#[cfg(feature = "cuda")]
+pub use cuda::FFTKernel;
+
 #[cfg(not(feature = "gpu"))]
 mod nogpu;
 

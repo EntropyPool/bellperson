@@ -71,7 +71,7 @@ where
     C: Circuit<E> + Send,
 {
     let proofs =
-        create_proof_batch_priority::<E, C, P>(vec![circuit], params, vec![r], vec![s], true)?;
+        create_proof_batch_priority::<E, C, P>(vec![circuit], params, vec![r], vec![s], false)?;
     Ok(proofs.into_iter().next().unwrap())
 }
 
@@ -86,7 +86,7 @@ where
     R: RngCore,
 {
     let proofs =
-        create_random_proof_batch_priority::<E, C, R, P>(vec![circuit], params, rng, true)?;
+        create_random_proof_batch_priority::<E, C, R, P>(vec![circuit], params, rng, false)?;
     Ok(proofs.into_iter().next().unwrap())
 }
 
@@ -100,7 +100,7 @@ where
     E: Engine,
     C: Circuit<E> + Send,
 {
-    create_proof_batch_priority::<E, C, P>(circuits, params, r, s, true)
+    create_proof_batch_priority::<E, C, P>(circuits, params, r, s, false)
 }
 
 pub fn create_random_proof_batch_in_priority<E, C, R, P: ParameterSource<E>>(
@@ -113,5 +113,5 @@ where
     C: Circuit<E> + Send,
     R: RngCore,
 {
-    create_random_proof_batch_priority::<E, C, R, P>(circuits, params, rng, true)
+    create_random_proof_batch_priority::<E, C, R, P>(circuits, params, rng, false)
 }

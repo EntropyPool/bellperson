@@ -51,6 +51,7 @@ criterion = "0.3.2"
 [features]
 default = ["pairing"]
 gpu = ["rust-gpu-tools", "ff-cl-gen", "fs2"]
+cuda = ["gpu"]
 groth16 = []
 
 blst = ["blstrs", "groth16"]
