@@ -374,8 +374,13 @@ where
                             .zip(self.kernels.par_iter_mut())
                             .map(|((bases, exps), kern)| -> Result<<G as CurveAffine>::Projective, GPUError> {
                                 let mut acc = <G as CurveAffine>::Projective::zero();
-                                let mem_limit = kern.multiexp_chunk_size(bases, exps).expect("fail to get gpu memory limit");
+                                let mut mem_limit = kern.multiexp_chunk_size(bases, exps).expect("fail to get gpu memory limit");
                                 let mut jack_chunk = std::cmp::min(kern.n, mem_limit);
+
+                                if chunk_size % jack_chunk != 0 {
+                                    jack_chunk = chunk_size / (chunk_size / jack_chunk + 1) + 1;
+                                }
+
                                 info!("jack chunk {} kernel n {} chunk size {} base size {} base type {} mem limit {}",
                                     jack_chunk, kern.n, chunk_size, std::mem::size_of::<G>(), type_of(&bases[0]), mem_limit);
                                 for (bases, exps) in bases.chunks(jack_chunk).zip(exps.chunks(jack_chunk)) {

@@ -589,7 +589,6 @@ where
     info!("ZQ: inputs end: {:?}", now.elapsed());
 
     drop(multiexp_kern);
-    #[cfg(feature = "gpu")]
 
     info!("ZQ: proofs start");
     let now = Instant::now();
