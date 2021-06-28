@@ -378,7 +378,7 @@ where
                                 let mut jack_chunk = std::cmp::min(kern.n, mem_limit);
 
                                 if chunk_size % jack_chunk != 0 {
-                                    jack_chunk = chunk_size / (chunk_size / jack_chunk + 1) + 1;
+                                    jack_chunk = chunk_size / (chunk_size / jack_chunk + 2) + 1;
                                 }
 
                                 info!("jack chunk {} kernel n {} chunk size {} base size {} base type {} mem limit {}",

@@ -21,7 +21,7 @@ static uint64_t multiexp_chunk_size(InputParameters<T> p) {
     size_t buckets_size = sizeof(projective<T>) * (2 * p.core_count * bucket_len);
     size_t results_size = sizeof(projective<T>) * (2 * p.core_count);
 
-    int64_t usable = free - buckets_size - results_size - 2 * 1024 * 1024 * 1024;
+    int64_t usable = free - buckets_size - results_size - 4 * 1024 * 1024 * 1024;
     if (usable < 0) {
         return 0;
     }
