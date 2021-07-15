@@ -48,6 +48,9 @@ where
     chunk_size_scale: usize,
     best_chunk_size_scale: usize,
     reserved_mem_ratio: f32,
+    chunk_divider_1: f64,
+    chunk_divider_2: f64,
+    chunk_divider_mod: usize,
 
     priority: bool,
     _phantom: std::marker::PhantomData<E::Fr>,
@@ -126,6 +129,9 @@ where
 
         let exp_bits = exp_size::<E>() * 8;
         let core_count = utils::get_core_count(&d);
+        let chunk_divider_1 = utils::get_chunk_divider_1(&d);
+        let chunk_divider_2 = utils::get_chunk_divider_2(&d);
+        let chunk_divider_mod = utils::get_chunk_divider_mod(&d);
         let mem = d.memory();
         let reserved_mem_ratio = utils::get_reserved_mem_ratio(&d);
         let max_window_size = utils::get_max_window_size(&d);
@@ -143,6 +149,9 @@ where
             chunk_size_scale,
             best_chunk_size_scale,
             reserved_mem_ratio,
+            chunk_divider_1,
+            chunk_divider_2,
+            chunk_divider_mod,
             n,
             priority,
             _phantom: std::marker::PhantomData,
@@ -374,15 +383,37 @@ where
                             .zip(self.kernels.par_iter_mut())
                             .map(|((bases, exps), kern)| -> Result<<G as CurveAffine>::Projective, GPUError> {
                                 let mut acc = <G as CurveAffine>::Projective::zero();
-                                let mut mem_limit = kern.multiexp_chunk_size(bases, exps).expect("fail to get gpu memory limit");
-                                let mut jack_chunk = std::cmp::min(kern.n, mem_limit);
 
-                                if chunk_size % jack_chunk != 0 {
-                                    jack_chunk = chunk_size / (chunk_size / jack_chunk + 2) + 1;
+                                let mut mem_limit = 0;
+                                let mut jack_chunk = kern.n;
+                                let size_result = std::mem::size_of::<<G as CurveAffine>::Projective>();
+
+                                #[cfg(feature = "cuda")]
+                                {
+                                    mem_limit = kern.multiexp_chunk_size(bases, exps).expect("fail to get gpu memory limit");
+                                    jack_chunk = std::cmp::min(kern.n, mem_limit);
                                 }
 
-                                info!("jack chunk {} kernel n {} chunk size {} base size {} base type {} mem limit {}",
-                                    jack_chunk, kern.n, chunk_size, std::mem::size_of::<G>(), type_of(&bases[0]), mem_limit);
+                                #[cfg(not(feature = "cuda"))]
+                                {
+                                    if size_result > 144 {
+                                        jack_chunk = (jack_chunk as f64 / kern.chunk_divider_1).ceil() as usize;
+                                    } else {
+                                        jack_chunk = (jack_chunk as f64 / kern.chunk_divider_2).ceil() as usize;
+                                    }
+                                }
+
+                                let mut better_chunk = jack_chunk;
+                                if chunk_size % jack_chunk != 0 {
+                                    better_chunk = chunk_size / (chunk_size / jack_chunk + kern.chunk_divider_mod) + 1;
+                                }
+
+                                if better_chunk < jack_chunk {
+                                    jack_chunk = better_chunk;
+                                }
+
+                                info!("jack chunk {} kernel n {} chunk size {} base size {} base type {} mem limit {} size_result {}",
+                                    jack_chunk, kern.n, chunk_size, std::mem::size_of::<G>(), type_of(&bases[0]), mem_limit, size_result);
                                 for (bases, exps) in bases.chunks(jack_chunk).zip(exps.chunks(jack_chunk)) {
                                     let result = kern.multiexp(bases, exps, bases.len())?;
                                     acc.add_assign(&result);
