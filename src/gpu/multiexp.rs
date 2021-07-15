@@ -50,6 +50,7 @@ where
     reserved_mem_ratio: f32,
     chunk_divider_1: f64,
     chunk_divider_2: f64,
+    chunk_divider_mod: usize,
 
     priority: bool,
     _phantom: std::marker::PhantomData<E::Fr>,
@@ -130,6 +131,7 @@ where
         let core_count = utils::get_core_count(&d);
         let chunk_divider_1 = utils::get_chunk_divider_1(&d);
         let chunk_divider_2 = utils::get_chunk_divider_2(&d);
+        let chunk_divider_mod = utils::get_chunk_divider_mod(&d);
         let mem = d.memory();
         let reserved_mem_ratio = utils::get_reserved_mem_ratio(&d);
         let max_window_size = utils::get_max_window_size(&d);
@@ -149,6 +151,7 @@ where
             reserved_mem_ratio,
             chunk_divider_1,
             chunk_divider_2,
+            chunk_divider_mod,
             n,
             priority,
             _phantom: std::marker::PhantomData,
@@ -402,7 +405,7 @@ where
 
                                 let mut better_chunk = jack_chunk;
                                 if chunk_size % jack_chunk != 0 {
-                                    better_chunk = chunk_size / (chunk_size / jack_chunk + 2) + 1;
+                                    better_chunk = chunk_size / (chunk_size / jack_chunk + kern.chunk_divider_mod) + 1;
                                 }
 
                                 if better_chunk < jack_chunk {
