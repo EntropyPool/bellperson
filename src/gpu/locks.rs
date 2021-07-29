@@ -5,8 +5,7 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
-const GPU_LOCK_NAME: &str = "bellman.gpu.lock";
-const PRIORITY_LOCK_NAME: &str = "bellman.priority.lock";
+const PRIORITY_LOCK_NAME: &str = "priority.lock";
 fn tmp_path(filename: &str) -> PathBuf {
     let mut p = std::env::temp_dir();
     p.push(filename);
