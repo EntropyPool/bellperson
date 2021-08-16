@@ -268,7 +268,7 @@ where
         let mut locks = Vec::new();
 
         for device in devices.iter() {
-            let lock = match locks::GPULock::lock(devices.len(), false) {
+            let lock = match locks::GPULock::lock(devices.len(), true) {
                 Ok(lock) => lock,
                 Err(..) =>{
                     break
