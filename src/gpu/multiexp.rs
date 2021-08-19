@@ -267,19 +267,24 @@ where
         let mut kernels = Vec::new();
         let mut locks = Vec::new();
 
-        for device in devices.iter() {
-            let lock = match locks::GPULock::lock(devices.len(), true) {
-                Ok(lock) => lock,
-                Err(..) =>{
+        loop {
+            for device in devices.iter() {
+                let lock = match locks::GPULock::lock(devices.len(), false) {
+                    Ok(lock) => lock,
+                    Err(..) =>{
+                        break
+                    },
+                };
+                let gpu = lock.1;
+                let device = devices[gpu].clone();
+                let kernel = MySingleMultiexpKernel::<E>::create(device, priority, gpu as u32)?;
+                kernels.push(kernel);
+                locks.push(lock);
+                if !std::env::var("FFI_MULTIEXP_USE_ALL_GPU").is_ok() {
                     break
-                },
-            };
-            let gpu = lock.1;
-            let device = devices[gpu].clone();
-            let kernel = MySingleMultiexpKernel::<E>::create(device, priority, gpu as u32)?;
-            kernels.push(kernel);
-            locks.push(lock);
-            if !std::env::var("FFI_MULTIEXP_USE_ALL_GPU").is_ok() {
+                }
+            }
+            if locks.len() > 0 {
                 break
             }
         }
