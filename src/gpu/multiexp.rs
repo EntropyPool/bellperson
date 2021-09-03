@@ -264,6 +264,9 @@ where
 {
     pub fn create(priority: bool) -> GPUResult<MultiexpKernel<E>> {
         let devices = opencl::Device::all();
+        if std::env::var("BELLMAN_NO_GPU").is_ok() || devices.len() == 0 {
+            return Err(GPUError::Simple("No working GPUs found!"));
+        }
         let mut kernels = Vec::new();
         let mut locks = Vec::new();
 

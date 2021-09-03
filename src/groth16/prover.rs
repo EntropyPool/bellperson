@@ -13,11 +13,11 @@ use super::{ParameterSource, Proof};
 use crate::domain::{EvaluationDomain, Scalar};
 use crate::gpu::{LockedFFTKernel, LockedMultiexpKernel};
 use crate::multicore::{Worker, THREAD_POOL};
-use crate::multiexp::{multiexp, multiexp_fulldensity, density_filter, multiexp_skipdensity, DensityTracker, FullDensity};
+use crate::multiexp::{multiexp, multiexp_fulldensity, DensityTracker, FullDensity};
 use crate::{
     Circuit, ConstraintSystem, Index, LinearCombination, SynthesisError, Variable, BELLMAN_VERSION,
 };
-use log::{info, trace};
+use log::{info};
 
 // use crossbeam_channel::{bounded, Receiver};
 
@@ -503,22 +503,11 @@ where
                 &mut multiexp_kern,
             );
 
-            let (
-                a_aux_bss,
-                a_aux_exps,
-                a_aux_skip,
-                a_aux_n
-            ) = density_filter(
+            let a_aux = multiexp(
+                &worker,
                 a_aux_source.clone(),
                 Arc::new(prover.a_aux_density),
-                aux_assignment.clone()
-            );
-            let a_aux = multiexp_skipdensity(
-                &worker,
-                a_aux_bss,
-                a_aux_exps,
-                a_aux_skip,
-                a_aux_n,
+                aux_assignment.clone(),
                 &mut multiexp_kern,
             );
 
@@ -530,22 +519,11 @@ where
                 &mut multiexp_kern,
             );
 
-            let (
-                b_g1_aux_bss,
-                b_g1_aux_exps,
-                b_g1_aux_skip,
-                b_g1_aux_n
-            ) = density_filter(
+            let b_g1_aux = multiexp(
+                &worker,
                 b_g1_aux_source.clone(),
                 b_aux_density.clone(),
-                aux_assignment.clone()
-            );
-            let b_g1_aux = multiexp_skipdensity(
-                &worker,
-                b_g1_aux_bss,
-                b_g1_aux_exps,
-                b_g1_aux_skip,
-                b_g1_aux_n,
+                aux_assignment.clone(),
                 &mut multiexp_kern,
             );
             let b_g2_inputs = multiexp(
@@ -556,22 +534,11 @@ where
                 &mut multiexp_kern,
             );
 
-            let (
-                b_g2_aux_bss,
-                b_g2_aux_exps,
-                b_g2_aux_skip,
-                b_g2_aux_n
-            ) = density_filter(
-                b_g2_aux_source.clone(),
-                b_aux_density.clone(),
-                aux_assignment.clone()
-            );
-            let b_g2_aux = multiexp_skipdensity(
+            let b_g2_aux = multiexp(
                 &worker,
-                b_g2_aux_bss,
-                b_g2_aux_exps,
-                b_g2_aux_skip,
-                b_g2_aux_n,
+                b_g2_aux_source.clone(),
+                b_aux_density,
+                aux_assignment.clone(),
                 &mut multiexp_kern,
             );
 
