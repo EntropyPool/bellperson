@@ -392,7 +392,29 @@ where
             return result
         }
     }
-    Waiter::done(Err(SynthesisError::GPUError(gpu::GPUError::GPUDisabled)))
+    let c = if exponents.len() < 32 {
+        3u32
+    } else {
+        (f64::from(exponents.len() as u32)).ln().ceil() as u32
+    };
+
+    if let Some(query_size) = _density_map.as_ref().get_query_size() {
+        // If the density map has a known query size, it should not be
+        // inconsistent with the number of exponents.
+        assert!(query_size == exponents.len());
+    }
+
+    let result = pool.compute(move || multiexp_inner(bases, _density_map, exponents, c));
+    #[cfg(feature = "gpu")]
+    {
+        // Do not give the control back to the caller till the
+        // multiexp is done. We may want to reacquire the GPU again
+        // between the multiexps.
+        let result = result.wait();
+        Waiter::done(result)
+    }
+    #[cfg(not(feature = "gpu"))]
+    result
 }
 
 
