@@ -131,9 +131,18 @@ where
     E: Engine + GpuEngine,
 {
     pub fn create(priority: bool) -> GPUResult<FFTKernel<E>> {
-        let lock = locks::GPULock::lock();
+        let devices = Device::all();
+        if devices.is_empty() {
+            return Err(GPUError::Simple("No working GPUs found!"));
+        }
+        let gpu_num = devices.len();
+        let lock = locks::GPULock::lock(gpu_num, true)?;
 
-        let kernels: Vec<_> = Device::all()
+        // Select the first device for FFT
+        let gpu = lock.1;
+        let device = devices[gpu].clone();
+
+        let kernels: Vec<_> = Vec::from([device])
             .iter()
             .filter_map(|device| {
                 let kernel = SingleFftKernel::<E>::create(device, priority);

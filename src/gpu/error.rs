@@ -18,6 +18,12 @@ pub enum GPUError {
     KernelUninitialized,
     #[error("GPU accelerator is disabled!")]
     GPUDisabled,
+    #[error("Error while initilizing CUDA")]
+    CUDAInitializationError,
+    #[error("Error while doing CUDA computation")]
+    CUDAComputationError,
+    #[error("Error while doing CUDA computation")]
+    CUDAUnknownState(usize),
 }
 
 pub type GPUResult<T> = std::result::Result<T, GPUError>;

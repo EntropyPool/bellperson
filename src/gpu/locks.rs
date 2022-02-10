@@ -2,9 +2,10 @@ use fs2::FileExt;
 use log::{debug, info, warn};
 use std::fs::File;
 use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 
-const GPU_LOCK_NAME: &str = "bellman.gpu.lock";
-const PRIORITY_LOCK_NAME: &str = "bellman.priority.lock";
+const PRIORITY_LOCK_NAME: &str = "priority.lock";
 fn tmp_path(filename: &str) -> PathBuf {
     let mut p = std::env::temp_dir();
     p.push(filename);
@@ -12,20 +13,46 @@ fn tmp_path(filename: &str) -> PathBuf {
 }
 
 /// `GPULock` prevents two kernel objects to be instantiated simultaneously.
-#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
-pub struct GPULock(File);
+pub struct GPULock(File, pub(crate) usize);
 impl GPULock {
-    pub fn lock() -> GPULock {
-        let gpu_lock_file = tmp_path(GPU_LOCK_NAME);
-        debug!("Acquiring GPU lock at {:?} ...", &gpu_lock_file);
-        let f = File::create(&gpu_lock_file)
-            .unwrap_or_else(|_| panic!("Cannot create GPU lock file at {:?}", &gpu_lock_file));
-        f.lock_exclusive().unwrap();
-        debug!("GPU lock acquired!");
-        GPULock(f)
+    pub fn lock(gpu_num: usize, block: bool) -> GPUResult<GPULock> {
+        info!("Acquiring GPU lock...");
+        let mut lock;
+        let mut gpu_index = 0;
+        let mut locked = false;
+        loop {
+            let gpu_name = format!("gpu{}.lock", gpu_index);
+            lock = File::create(tmp_path(gpu_name.as_str())).unwrap();
+            match lock.try_lock_exclusive() {
+                Ok(..) => {
+                    debug!("{} acquired.", gpu_name);
+                    locked = true;
+                }
+                Err(..) => {
+                    gpu_index += 1;
+                    if gpu_num <= gpu_index && !block {
+                        break;
+                    } else {
+                        gpu_index = gpu_index % gpu_num;
+                        info!("try to lock another gpu {}.", gpu_index);
+                        thread::sleep(Duration::from_millis(10));
+                        continue;
+                    }
+                }
+            };
+            break;
+        }
+
+        if !locked {
+            return Err(GPUError::GPUTaken);
+        }
+
+        info!("GPU {} lock acquired!", gpu_index);
+        return Ok(GPULock(lock, gpu_index));
     }
 }
+
 impl Drop for GPULock {
     fn drop(&mut self) {
         self.0.unlock().unwrap();

@@ -11,11 +11,13 @@ use rust_gpu_tools::{program_closures, Device, Program};
 
 use std::any::TypeId;
 use std::ops::AddAssign;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
-const MAX_WINDOW_SIZE: usize = 10;
+use std::sync::mpsc;
+
+// const MAX_WINDOW_SIZE: usize = 10;
 const LOCAL_WORK_SIZE: usize = 256;
-const MEMORY_PADDING: f64 = 0.2f64; // Let 20% of GPU memory be free
+// const MEMORY_PADDING: f64 = 0.2f64; // Let 20% of GPU memory be free
 
 pub fn get_cpu_utilization() -> f64 {
     use std::env;
@@ -36,20 +38,34 @@ pub struct SingleMultiexpKernel<E>
 where
     E: Engine + GpuEngine,
 {
+    gpu_id: u32,
     program: Program,
+
     core_count: usize,
     n: usize,
+    max_window_size: usize,
+    chunk_size_scale: usize,
+    best_chunk_size_scale: usize,
+    reserved_mem_ratio: f32,
+    chunk_divider_1: f64,
+    chunk_divider_2: f64,
+    chunk_divider_mod: usize,
 
     priority: bool,
     _phantom: std::marker::PhantomData<E::Fr>,
 }
 
-fn calc_num_groups(core_count: usize, num_windows: usize) -> usize {
+pub(crate) fn calc_num_groups(core_count: usize, num_windows: usize) -> usize {
     // Observations show that we get the best performance when num_groups * num_windows ~= 2 * CUDA_CORES
     2 * core_count / num_windows
 }
 
-fn calc_window_size(n: usize, exp_bits: usize, core_count: usize) -> usize {
+pub(crate) fn calc_window_size(
+    n: usize,
+    exp_bits: usize,
+    core_count: usize,
+    max_window_size: usize,
+) -> usize {
     // window_size = ln(n / num_groups)
     // num_windows = exp_bits / window_size
     // num_groups = 2 * core_count / num_windows = 2 * core_count * window_size / exp_bits
@@ -58,40 +74,54 @@ fn calc_window_size(n: usize, exp_bits: usize, core_count: usize) -> usize {
     //
     // Thus we need to solve the following equation:
     // window_size + ln(window_size) = ln(exp_bits * n / (2 * core_count))
+
+    /*
     let lower_bound = (((exp_bits * n) as f64) / ((2 * core_count) as f64)).ln();
-    for w in 0..MAX_WINDOW_SIZE {
+    for w in 0..max_window_size {
         if (w as f64) + (w as f64).ln() > lower_bound {
             return w;
         }
     }
+    */
 
-    MAX_WINDOW_SIZE
+    max_window_size
 }
 
-fn calc_best_chunk_size(max_window_size: usize, core_count: usize, exp_bits: usize) -> usize {
+pub(crate) fn calc_best_chunk_size(
+    max_window_size: usize,
+    core_count: usize,
+    exp_bits: usize,
+    scale: usize,
+) -> usize {
     // Best chunk-size (N) can also be calculated using the same logic as calc_window_size:
     // n = e^window_size * window_size * 2 * core_count / exp_bits
     (((max_window_size as f64).exp() as f64)
         * (max_window_size as f64)
-        * 2f64
+        * scale as f64
         * (core_count as f64)
         / (exp_bits as f64))
         .ceil() as usize
 }
 
-fn calc_chunk_size<E>(mem: u64, core_count: usize) -> usize
+pub(crate) fn calc_chunk_size<E>(
+    mem: u64,
+    core_count: usize,
+    scale: usize,
+    max_window_size: usize,
+    reserved_mem_ratio: f32,
+) -> usize
 where
     E: Engine,
 {
     let aff_size = std::mem::size_of::<E::G1Affine>() + std::mem::size_of::<E::G2Affine>();
     let exp_size = exp_size::<E>();
     let proj_size = std::mem::size_of::<E::G1>() + std::mem::size_of::<E::G2>();
-    ((((mem as f64) * (1f64 - MEMORY_PADDING)) as usize)
-        - (2 * core_count * ((1 << MAX_WINDOW_SIZE) + 1) * proj_size))
+    ((((mem as f64) * (1f64 - reserved_mem_ratio as f64)) as usize)
+        - (scale * core_count * ((1 << max_window_size) + 1) * proj_size))
         / (aff_size + exp_size)
 }
 
-fn exp_size<E: Engine>() -> usize {
+pub(crate) fn exp_size<E: Engine>() -> usize {
     std::mem::size_of::<<E::Fr as ff::PrimeField>::Repr>()
 }
 
@@ -99,19 +129,41 @@ impl<E> SingleMultiexpKernel<E>
 where
     E: Engine + GpuEngine,
 {
-    pub fn create(device: &Device, priority: bool) -> GPUResult<SingleMultiexpKernel<E>> {
+    pub fn create(d: Device, priority: bool, gpuid: u32) -> GPUResult<SingleMultiexpKernel<E>> {
         let exp_bits = exp_size::<E>() * 8;
-        let core_count = utils::get_core_count(&device.name());
-        let mem = device.memory();
-        let max_n = calc_chunk_size::<E>(mem, core_count);
-        let best_n = calc_best_chunk_size(MAX_WINDOW_SIZE, core_count, exp_bits);
+        let core_count = utils::get_core_count(&d);
+        let chunk_divider_1 = utils::get_chunk_divider_1(&d);
+        let chunk_divider_2 = utils::get_chunk_divider_2(&d);
+        let chunk_divider_mod = utils::get_chunk_divider_mod(&d);
+        let mem = d.memory();
+        let reserved_mem_ratio = utils::get_reserved_mem_ratio(&d);
+        let max_window_size = utils::get_max_window_size(&d);
+        let chunk_size_scale = utils::get_chunk_size_scale(&d);
+        let best_chunk_size_scale = utils::get_best_chunk_size_scale(&d);
+        let max_n = calc_chunk_size::<E>(
+            mem,
+            core_count,
+            chunk_size_scale,
+            max_window_size,
+            reserved_mem_ratio,
+        );
+        let best_n =
+            calc_best_chunk_size(max_window_size, core_count, exp_bits, best_chunk_size_scale);
         let n = std::cmp::min(max_n, best_n);
 
-        let program = program::program::<E>(device)?;
+        let program = program::program::<E>(&d)?;
 
         Ok(SingleMultiexpKernel {
-            program,
+            gpu_id: gpuid,
+            program: program,
             core_count,
+            max_window_size,
+            chunk_size_scale,
+            best_chunk_size_scale,
+            reserved_mem_ratio,
+            chunk_divider_1,
+            chunk_divider_2,
+            chunk_divider_mod,
             n,
             priority,
             _phantom: std::marker::PhantomData,
@@ -132,7 +184,8 @@ where
         }
 
         let exp_bits = exp_size::<E>() * 8;
-        let window_size = calc_window_size(n as usize, exp_bits, self.core_count);
+        let window_size =
+            calc_window_size(n as usize, exp_bits, self.core_count, self.max_window_size);
         let num_windows = ((exp_bits as f64) / (window_size as f64)).ceil() as usize;
         let num_groups = calc_num_groups(self.core_count, num_windows);
         let bucket_len = 1 << window_size;
@@ -214,13 +267,17 @@ where
     }
 }
 
+fn type_of<T>(_: &T) -> &str {
+    std::any::type_name::<T>()
+}
+
 // A struct that containts several multiexp kernels for different devices
 pub struct MultiexpKernel<E>
 where
     E: Engine + GpuEngine,
 {
     kernels: Vec<SingleMultiexpKernel<E>>,
-    _lock: locks::GPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
+    _locks: Vec<locks::GPULock>, // RFC 1857: struct fields are dropped in the same order as they are declared.
 }
 
 impl<E> MultiexpKernel<E>
@@ -228,22 +285,33 @@ where
     E: Engine + GpuEngine,
 {
     pub fn create(priority: bool) -> GPUResult<MultiexpKernel<E>> {
-        let lock = locks::GPULock::lock();
+        let devices = Device::all();
+        let gpu_count = devices.len();
+        if std::env::var("BELLMAN_NO_GPU").is_ok() || gpu_count == 0 {
+            return Err(GPUError::Simple("No working GPUs found!"));
+        }
+        let mut kernels = Vec::new();
+        let mut locks = Vec::new();
 
-        let kernels: Vec<_> = Device::all()
-            .iter()
-            .filter_map(|device| {
-                let kernel = SingleMultiexpKernel::<E>::create(device, priority);
-                if let Err(ref e) = kernel {
-                    error!(
-                        "Cannot initialize kernel for device '{}'! Error: {}",
-                        device.name(),
-                        e
-                    );
+        loop {
+            for _device in devices.iter() {
+                let lock = match locks::GPULock::lock(gpu_count, false) {
+                    Ok(lock) => lock,
+                    Err(..) => break,
+                };
+                let gpu = lock.1;
+                let device = devices[gpu].clone();
+                let kernel = SingleMultiexpKernel::<E>::create(device, priority, gpu as u32)?;
+                kernels.push(kernel);
+                locks.push(lock);
+                if !std::env::var("FFI_MULTIEXP_USE_ALL_GPU").is_ok() {
+                    break;
                 }
-                kernel.ok()
-            })
-            .collect();
+            }
+            if locks.len() > 0 {
+                break;
+            }
+        }
 
         if kernels.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));
@@ -254,16 +322,11 @@ where
             get_cpu_utilization()
         );
         for (i, k) in kernels.iter().enumerate() {
-            info!(
-                "Multiexp: Device {}: {} (Chunk-size: {})",
-                i,
-                k.program.device_name(),
-                k.n
-            );
+            info!("Multiexp: {} (Chunk-size: {})", i, k.n);
         }
         Ok(MultiexpKernel::<E> {
             kernels,
-            _lock: lock,
+            _locks: locks,
         })
     }
 
@@ -291,6 +354,7 @@ where
 
         let chunk_size = ((n as f64) / (num_devices as f64)).ceil() as usize;
 
+        /*
         let mut results = Vec::new();
         let error = Arc::new(RwLock::new(Ok(())));
 
@@ -345,6 +409,95 @@ where
         }
 
         acc.add_assign(&cpu_acc.wait().unwrap());
+        Ok(acc)
+        */
+        use rayon::prelude::*;
+
+        let mut acc = <G as PrimeCurveAffine>::Curve::identity();
+
+        let (tx_gpu, rx_gpu) = mpsc::channel();
+        let (tx_cpu, rx_cpu) = mpsc::channel();
+        pool.scoped(|scoped| {
+            // GPU
+            scoped.execute(move || {
+                let results = if n > 0 {
+                    bases
+                        .par_chunks(chunk_size)
+                        .zip(exps.par_chunks(chunk_size))
+                        .zip(self.kernels.par_iter_mut())
+                        .map(|((bases, exps), kern)| -> Result<<G as PrimeCurveAffine>::Curve, GPUError> {
+                            let mut acc = <G as PrimeCurveAffine>::Curve::identity();
+
+                            let mut mem_limit = 0;
+                            let mut jack_chunk = kern.n;
+                            let size_result = std::mem::size_of::<<G as PrimeCurveAffine>::Curve>();
+
+                            #[cfg(feature = "cuda")]
+                            {
+                                mem_limit = kern.multiexp_chunk_size(bases, exps).expect("fail to get gpu memory limit");
+                                jack_chunk = std::cmp::min(kern.n, mem_limit);
+                            }
+
+                            #[cfg(not(feature = "cuda"))]
+                            {
+                                if size_result > 144 {
+                                    jack_chunk = (jack_chunk as f64 / kern.chunk_divider_1).ceil() as usize;
+                                } else {
+                                    jack_chunk = (jack_chunk as f64 / kern.chunk_divider_2).ceil() as usize;
+                                }
+                            }
+
+                            let mut better_chunk = jack_chunk;
+                            if chunk_size % jack_chunk != 0 {
+                                better_chunk = chunk_size / (chunk_size / jack_chunk + kern.chunk_divider_mod) + 1;
+                            }
+
+                            if better_chunk < jack_chunk {
+                                jack_chunk = better_chunk;
+                            }
+
+                            info!("jack chunk {} kernel n {} chunk size {} base size {} base type {} mem limit {} size_result {}",
+                                jack_chunk, kern.n, chunk_size, std::mem::size_of::<G>(), type_of(&bases[0]), mem_limit, size_result);
+                            for (bases, exps) in bases.chunks(jack_chunk).zip(exps.chunks(jack_chunk)) {
+                                let result = kern.multiexp(bases, exps, bases.len())?;
+                                acc.add_assign(&result);
+                            }
+
+                            Ok(acc)
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                };
+
+                tx_gpu.send(results).unwrap();
+
+            });
+            // CPU
+            scoped.execute(move || {
+                let cpu_acc = cpu_multiexp::<_, _, _, E, _>(
+                    &pool,
+                    (Arc::new(cpu_bases.to_vec()), 0),
+                    FullDensity,
+                    Arc::new(cpu_exps.to_vec()),
+                    &mut None,
+                );
+                let cpu_r = cpu_acc.wait().unwrap();
+
+                tx_cpu.send(cpu_r).unwrap();
+            });
+        });
+
+        // waiting results...
+        let results = rx_gpu.recv().unwrap();
+        let cpu_r = rx_cpu.recv().unwrap();
+
+        for r in results {
+            acc.add_assign(&r?);
+        }
+
+        acc.add_assign(&cpu_r);
+
         Ok(acc)
     }
 }
