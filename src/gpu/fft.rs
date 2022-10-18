@@ -2,10 +2,10 @@ use std::cmp;
 use std::ops::MulAssign;
 use std::sync::{Arc, RwLock};
 
+use ec_gpu_gen::rust_gpu_tools::{program_closures, Device, LocalBuffer, Program};
 use ff::Field;
 use log::{error, info};
 use pairing::Engine;
-use rust_gpu_tools::{program_closures, Device, LocalBuffer, Program};
 
 use crate::gpu::{
     error::{GPUError, GPUResult},

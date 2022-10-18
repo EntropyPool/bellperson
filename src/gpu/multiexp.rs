@@ -3,11 +3,11 @@ use super::{locks, program, utils, GpuEngine};
 use crate::multicore::Worker;
 use crate::multiexp::{multiexp as cpu_multiexp, FullDensity};
 
+use ec_gpu_gen::rust_gpu_tools::{program_closures, Device, Program};
 use ff::PrimeField;
 use group::{prime::PrimeCurveAffine, Group};
 use log::{error, info};
 use pairing::Engine;
-use rust_gpu_tools::{program_closures, Device, Program};
 
 use std::any::TypeId;
 use std::ops::AddAssign;
@@ -354,63 +354,6 @@ where
 
         let chunk_size = ((n as f64) / (num_devices as f64)).ceil() as usize;
 
-        /*
-        let mut results = Vec::new();
-        let error = Arc::new(RwLock::new(Ok(())));
-
-        let cpu_acc = pool.scoped(|s| {
-            if n > 0 {
-                results = vec![<G as PrimeCurveAffine>::Curve::identity(); self.kernels.len()];
-
-                for (((bases, exps), kern), result) in bases
-                    .chunks(chunk_size)
-                    .zip(exps.chunks(chunk_size))
-                    .zip(self.kernels.iter_mut())
-                    .zip(results.iter_mut())
-                {
-                    let error = error.clone();
-                    s.execute(move || {
-                        let mut acc = <G as PrimeCurveAffine>::Curve::identity();
-                        for (bases, exps) in bases.chunks(kern.n).zip(exps.chunks(kern.n)) {
-                            if error.read().unwrap().is_err() {
-                                break;
-                            }
-                            match kern.multiexp(bases, exps, bases.len()) {
-                                Ok(result) => acc.add_assign(&result),
-                                Err(e) => {
-                                    *error.write().unwrap() = Err(e);
-                                    break;
-                                }
-                            }
-                        }
-                        if error.read().unwrap().is_ok() {
-                            *result = acc;
-                        }
-                    });
-                }
-            }
-
-            cpu_multiexp::<_, _, _, E, _>(
-                &pool,
-                (Arc::new(cpu_bases.to_vec()), 0),
-                FullDensity,
-                Arc::new(cpu_exps.to_vec()),
-                &mut None,
-            )
-        });
-
-        Arc::try_unwrap(error)
-            .expect("only one ref left")
-            .into_inner()
-            .unwrap()?;
-        let mut acc = <G as PrimeCurveAffine>::Curve::identity();
-        for r in results {
-            acc.add_assign(&r);
-        }
-
-        acc.add_assign(&cpu_acc.wait().unwrap());
-        Ok(acc)
-        */
         use rayon::prelude::*;
 
         let mut acc = <G as PrimeCurveAffine>::Curve::identity();

@@ -1,7 +1,7 @@
 #![allow(clippy::upper_case_acronyms)]
 
 #[cfg(any(feature = "cuda", feature = "opencl"))]
-use rust_gpu_tools::GPUError as GpuToolsError;
+use ec_gpu_gen::rust_gpu_tools::GPUError as GpuToolsError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum GPUError {

@@ -1,13 +1,13 @@
 use std::env;
 
+#[cfg(feature = "cuda")]
+use ec_gpu_gen::rust_gpu_tools::cuda;
+#[cfg(feature = "opencl")]
+use ec_gpu_gen::rust_gpu_tools::opencl;
+use ec_gpu_gen::rust_gpu_tools::{Device, Framework, GPUError as GpuToolsError, Program};
 #[cfg(feature = "opencl")]
 use ec_gpu_gen::Limb64;
 use log::info;
-#[cfg(feature = "cuda")]
-use rust_gpu_tools::cuda;
-#[cfg(feature = "opencl")]
-use rust_gpu_tools::opencl;
-use rust_gpu_tools::{Device, Framework, GPUError as GpuToolsError, Program};
 
 #[cfg(not(all(feature = "cuda", feature = "opencl")))]
 use crate::gpu::error::GPUError;
@@ -49,7 +49,7 @@ fn select_framework(default_framework: Framework) -> GPUResult<Framework> {
     }
 }
 
-/// Returns the program for the preferred [`rust_gpu_tools::device::Framework`].
+/// Returns the program for the preferred [`ec_gpu_gen::rust_gpu_tools::device::Framework`].
 ///
 /// If the device supports CUDA, then CUDA is used, else OpenCL. You can force a selection with
 /// the environment variable `BELLMAN_GPU_FRAMEWORK`, which can be set either to `cuda` or `opencl`.
@@ -61,7 +61,7 @@ where
     program_use_framework::<E>(device, &framework)
 }
 
-/// Returns the program for the specified [`rust_gpu_tools::device::Framework`].
+/// Returns the program for the specified [`ec_gpu_gen::rust_gpu_tools::device::Framework`].
 pub fn program_use_framework<E>(device: &Device, framework: &Framework) -> GPUResult<Program>
 where
     E: Engine + GpuEngine,

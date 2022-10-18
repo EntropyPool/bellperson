@@ -9,10 +9,10 @@ use super::multiexp::{
 };
 use super::{locks, sources, utils, GPUError, GPUResult};
 use crate::bls::Engine;
+use ec_gpu_gen::rust_gpu_tools::Device;
 use ff::{Field, PrimeField, ScalarEngine};
 use groupy::{CurveAffine, CurveProjective};
 use log::info;
-use rust_gpu_tools::Device;
 use std::cmp::min;
 
 const LOG2_MAX_ELEMENTS: usize = 32; // At most 2^32 elements is supported.

@@ -1,5 +1,5 @@
+use ec_gpu_gen::rust_gpu_tools::Device;
 use log::{info, warn};
-use rust_gpu_tools::Device;
 use std::collections::HashMap;
 use std::env;
 
