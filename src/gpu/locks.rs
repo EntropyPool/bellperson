@@ -1,6 +1,5 @@
 use std::fs::File;
 use std::path::PathBuf;
-use std::convert::TryFrom;
 
 use ec_gpu::GpuEngine;
 use ec_gpu_gen::fft::FftKernel;
@@ -14,11 +13,14 @@ use crate::gpu::CpuGpuMultiexpKernel;
 
 const GPU_LOCK_NAME: &str = "bellman.gpu.lock";
 const PRIORITY_LOCK_NAME: &str = "bellman.priority.lock";
-const PRIORITY_LOCK_UID: &str = "00000000-0000-0000-0000-000000000000";
 
-fn tmp_path(filename: &str, id: UniqueId) -> PathBuf {
+fn tmp_path(filename: &str, id: Option<UniqueId>) -> PathBuf {
     let mut p = std::env::temp_dir();
-    p.push(filename.to_owned() + "." + &id.to_string());
+    let mut tmpfile = filename.to_owned();
+    if id.is_some() {
+        tmpfile.push_str(&(".".to_owned() + &id.unwrap().to_string()));
+    }
+    p.push(tmpfile);
     p
 }
 
@@ -31,27 +33,30 @@ impl GPULock<'_> {
     pub fn lock() -> GPULock<'static> {
         let devices = Device::all();
         let mut locks = Vec::new();
+        let mut gpus_per_lock = devices.len();
 
-        let mut gpu_per_task = match std::env::var("GPU_PER_TASK") {
-            Ok(val) => val.parse::<usize>().expect("GPU_PER_TASK must be number!"),
-            Err(_) => devices.len(),
+        match std::env::var("BELLPERSON_GPUS_PER_LOCK") {
+            Ok(val) => {
+                match val.parse::<usize>() {
+                    Ok(val) if val > 0 => gpus_per_lock = val,
+                    _ => warn!("BELLPERSON_GPUS_PER_LOCK is not number, use all gpus"),
+                };
+            },
+            _ => warn!("BELLPERSON_GPUS_PER_LOCK parse fail, use all gpus"),
         };
-        if gpu_per_task == 0 {
-            gpu_per_task = devices.len();
-        }
 
-        for device in devices {
+        for (index, device) in devices.iter().enumerate() {
             let uid = device.unique_id();
-            let gpu_lock_file = tmp_path(GPU_LOCK_NAME, uid);
-            debug!("Acquiring GPU {:?} lock at {:?} ...", uid, &gpu_lock_file);
+            let gpu_lock_file = tmp_path(GPU_LOCK_NAME, Some(uid));
+            debug!("Acquiring GPU lock {}/{} at {:?} ...", index, gpus_per_lock, &gpu_lock_file);
             let f = File::create(&gpu_lock_file)
                 .unwrap_or_else(|_| panic!("Cannot create GPU {:?} lock file at {:?}", uid, &gpu_lock_file));
             if f.try_lock_exclusive().is_err() {
                 continue
             }
-            debug!("GPU {:?} lock acquired!", uid);
-            locks.push((f, device, gpu_lock_file));
-            if locks.len() >= gpu_per_task {
+            debug!("GPU lock acquired at {:?}", gpu_lock_file);
+            locks.push((f, *device, gpu_lock_file));
+            if locks.len() >= gpus_per_lock {
                 break;
             }
         }
@@ -63,7 +68,7 @@ impl Drop for GPULock<'_> {
     fn drop(&mut self) {
         for f in &self.0 {
             f.0.unlock().unwrap();
-            debug!("GPU {:?} lock released!", f.2);
+            debug!("GPU lock released at {:?}", f.2);
         }
     }
 }
@@ -76,7 +81,7 @@ impl Drop for GPULock<'_> {
 pub struct PriorityLock(File);
 impl PriorityLock {
     pub fn lock() -> PriorityLock {
-        let priority_lock_file = tmp_path(PRIORITY_LOCK_NAME, UniqueId::try_from(PRIORITY_LOCK_UID).unwrap());
+        let priority_lock_file = tmp_path(PRIORITY_LOCK_NAME, None);
         debug!("Acquiring priority lock at {:?} ...", &priority_lock_file);
         let f = File::create(&priority_lock_file).unwrap_or_else(|_| {
             panic!(
@@ -91,7 +96,7 @@ impl PriorityLock {
 
     pub fn wait(priority: bool) {
         if !priority {
-            if let Err(err) = File::create(tmp_path(PRIORITY_LOCK_NAME, UniqueId::try_from(PRIORITY_LOCK_UID).unwrap()))
+            if let Err(err) = File::create(tmp_path(PRIORITY_LOCK_NAME, None))
                 .unwrap()
                 .lock_exclusive()
             {
@@ -104,7 +109,7 @@ impl PriorityLock {
         if priority {
             return false;
         }
-        if let Err(err) = File::create(tmp_path(PRIORITY_LOCK_NAME, UniqueId::try_from(PRIORITY_LOCK_UID).unwrap()))
+        if let Err(err) = File::create(tmp_path(PRIORITY_LOCK_NAME, None))
             .unwrap()
             .try_lock_shared()
         {
