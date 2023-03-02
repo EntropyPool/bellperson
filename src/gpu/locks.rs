@@ -136,11 +136,7 @@ where
     E: Engine + GpuEngine,
 {
     let lock = GPULock::lock();
-    let mut devices = Vec::new();
-
-    for l in &lock.0 {
-        devices.push(l.1);
-    }
+    let devices = lock.0.into_iter().map(|(_, device, _)| { device }).rev().collect();
 
     let kernel = if priority {
         FftKernel::create_with_abort(&devices[..], &|| -> bool {
@@ -168,11 +164,7 @@ where
     E: Engine + GpuEngine,
 {
     let lock = GPULock::lock();
-    let mut devices = Vec::new();
-
-    for l in &lock.0 {
-        devices.push(l.1);
-    }
+    let devices = lock.0.into_iter().map(|(_, device, _)| { device }).rev().collect();
 
     let kernel = if priority {
         CpuGpuMultiexpKernel::create_with_abort(&devices[..], &|| -> bool {
