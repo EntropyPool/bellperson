@@ -17,58 +17,102 @@ const PRIORITY_LOCK_NAME: &str = "bellman.priority.lock";
 fn tmp_path(filename: &str, id: Option<UniqueId>) -> PathBuf {
     let mut p = std::env::temp_dir();
     let mut tmpfile = filename.to_owned();
-    if id.is_some() {
-        tmpfile.push_str(&(".".to_owned() + &id.unwrap().to_string()));
+    if let Some(id_str) = id {
+        tmpfile.push_str(&(".".to_owned() + &id_str.to_string()));
     }
     p.push(tmpfile);
     p
 }
 
+#[derive(Debug)]
+struct LockInfo<'a> {
+    file: Option<File>,
+    path: Option<PathBuf>,
+    devices: Vec<&'a Device>,
+}
+
 /// `GPULock` prevents two kernel objects to be instantiated simultaneously.
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
-pub struct GPULock<'a>(Vec<(File, &'a Device, PathBuf)>);
+pub struct GPULock<'a>(Vec<LockInfo<'a>>);
 
 impl GPULock<'_> {
-    pub fn lock() -> GPULock<'static> {
-        let devices = Device::all();
-        let mut locks = Vec::new();
-        let mut gpus_per_lock = devices.len();
+    pub fn lock() -> Self {
+        if let Ok(val) = std::env::var("BELLPERSON_GPUS_PER_LOCK") {
+            match val.parse::<usize>() {
+                Ok(val) if val > 0 => {
+                    let devices = Device::all();
+                    info!(
+                        "BELLPERSON_GPUS_PER_LOCK == {}, try lock {}/{} gpus",
+                        val,
+                        val,
+                        devices.len(),
+                    );
 
-        match std::env::var("BELLPERSON_GPUS_PER_LOCK") {
-            Ok(val) => {
-                match val.parse::<usize>() {
-                    Ok(val) if val > 0 => gpus_per_lock = val,
-                    _ => warn!("BELLPERSON_GPUS_PER_LOCK is not number, use all gpus"),
-                };
-            },
-            _ => warn!("BELLPERSON_GPUS_PER_LOCK parse fail, use all gpus"),
-        };
+                    let mut locks = Vec::new();
+                    for (index, device) in devices.iter().enumerate() {
+                        let uid = device.unique_id();
+                        let path = tmp_path(GPU_LOCK_NAME, Some(uid));
+                        debug!("Acquiring GPU lock {}/{} at {:?} ...", index, val, &path);
+                        let file = File::create(&path).unwrap_or_else(|_| {
+                            panic!("Cannot create GPU {:?} lock file at {:?}", uid, &path)
+                        });
+                        if file.try_lock_exclusive().is_err() {
+                            continue;
+                        }
+                        debug!("GPU lock acquired at {:?}", path);
+                        locks.push(LockInfo {
+                            file: Some(file),
+                            path: Some(path),
+                            devices: vec![device],
+                        });
+                        if locks.len() >= val {
+                            break;
+                        }
+                    }
 
-        for (index, device) in devices.iter().enumerate() {
-            let uid = device.unique_id();
-            let gpu_lock_file = tmp_path(GPU_LOCK_NAME, Some(uid));
-            debug!("Acquiring GPU lock {}/{} at {:?} ...", index, gpus_per_lock, &gpu_lock_file);
-            let f = File::create(&gpu_lock_file)
-                .unwrap_or_else(|_| panic!("Cannot create GPU {:?} lock file at {:?}", uid, &gpu_lock_file));
-            if f.try_lock_exclusive().is_err() {
-                continue
-            }
-            debug!("GPU lock acquired at {:?}", gpu_lock_file);
-            locks.push((f, *device, gpu_lock_file));
-            if locks.len() >= gpus_per_lock {
-                break;
-            }
+                    return GPULock(locks);
+                }
+                Ok(val) if val == 0 => {
+                    info!("BELLPERSON_GPUS_PER_LOCK == 0, free to use gpus");
+                    return GPULock(vec![LockInfo {
+                        file: None,
+                        path: None,
+                        devices: Device::all(),
+                    }]);
+                }
+                _ => warn!("BELLPERSON_GPUS_PER_LOCK parse fail, use all gpus"),
+            };
         }
 
-        GPULock(locks)
+        info!("BELLPERSON_GPUS_PER_LOCK fallback to single lock mode");
+
+        // Fallback to create single lock
+        let path = tmp_path(GPU_LOCK_NAME, None);
+        debug!("Acquiring GPU lock at {:?} ...", &path);
+        let file = File::create(&path).unwrap_or_else(|_| {
+            panic!("Cannot create GPU lock file at {:?}", &path);
+        });
+        file.lock_exclusive().unwrap();
+        debug!("GPU lock acquired!");
+        GPULock(vec![LockInfo {
+            file: Some(file),
+            path: Some(path),
+            devices: Device::all(),
+        }])
     }
 }
+
 impl Drop for GPULock<'_> {
     fn drop(&mut self) {
-        for f in &self.0 {
-            f.0.unlock().unwrap();
-            debug!("GPU lock released at {:?}", f.2);
+        for lock_info in &self.0 {
+            if let Some(file) = &lock_info.file {
+                file.unlock().unwrap();
+                debug!(
+                    "GPU lock released at {:?}",
+                    lock_info.path.as_ref().unwrap(),
+                );
+            }
         }
     }
 }
@@ -136,7 +180,20 @@ where
     E: Engine + GpuEngine,
 {
     let lock = GPULock::lock();
-    let devices = lock.0.iter().map(|(_, device, _)| *device).collect::<Vec<&Device>>();
+    let mut devices = Vec::new();
+    for lock_info in &lock.0 {
+        for device in &lock_info.devices {
+            devices.push(*device);
+        }
+    }
+
+    /*
+    let devices = lock
+        .0
+        .iter()
+        .map(|LockInfo { devices, .. }| devices)
+        .collect::<Vec<&Device>>();
+    */
 
     let kernel = if priority {
         FftKernel::create_with_abort(&devices[..], &|| -> bool {
@@ -164,7 +221,20 @@ where
     E: Engine + GpuEngine,
 {
     let lock = GPULock::lock();
-    let devices = lock.0.iter().map(|(_, device, _)| *device).collect::<Vec<&Device>>();
+    let mut devices = Vec::new();
+    for lock_info in &lock.0 {
+        for device in &lock_info.devices {
+            devices.push(*device);
+        }
+    }
+
+    /*
+    let devices = lock
+        .0
+        .iter()
+        .map(|LockInfo { devices, .. }| devices)
+        .collect::<Vec<&Device>>();
+    */
 
     let kernel = if priority {
         CpuGpuMultiexpKernel::create_with_abort(&devices[..], &|| -> bool {
