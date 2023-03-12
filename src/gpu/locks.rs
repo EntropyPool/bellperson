@@ -140,6 +140,7 @@ impl PriorityLock {
 
     pub fn wait(priority: bool) {
         if !priority {
+            info!("priority lock {:?}", tmp_path(PRIORITY_LOCK_NAME, None));
             if let Err(err) = File::create(tmp_path(PRIORITY_LOCK_NAME, None))
                 .unwrap()
                 .lock_exclusive()
