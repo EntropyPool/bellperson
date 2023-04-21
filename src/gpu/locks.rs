@@ -176,7 +176,7 @@ impl Drop for PriorityLock {
     }
 }
 
-fn create_fft_kernel<'a, E>(priority: bool) -> Option<(FftKernel<'a, E>, GPULock<'a>)>
+fn create_fft_kernel<'a, F>(priority: bool) -> Option<(FftKernel<'a, F>, GPULock<'a>)>
 where
     F: Field + GpuName,
 {
@@ -187,6 +187,11 @@ where
             devices.push(*device);
         }
     }
+    let programs = devices
+        .iter()
+        .map(|device| ec_gpu_gen::program!(device))
+        .collect::<Result<_, _>>()
+        .ok()?;
 
     /*
     let devices = lock
@@ -197,13 +202,13 @@ where
     */
 
     let kernel = if priority {
-        FftKernel::create_with_abort(&devices[..], &|| -> bool {
+        FftKernel::create_with_abort(programs, &|| -> bool {
             // We only supply a function in case it is high priority, hence always passing in
             // `true`.
             PriorityLock::should_break(true)
         })
     } else {
-        FftKernel::create(&devices[..])
+        FftKernel::create(programs)
     };
     match kernel {
         Ok(k) => {
@@ -217,7 +222,7 @@ where
     }
 }
 
-fn create_multiexp_kernel<'a, E>(priority: bool) -> Option<(CpuGpuMultiexpKernel<'a, E>, GPULock<'a>)>
+fn create_multiexp_kernel<'a, G>(priority: bool) -> Option<(CpuGpuMultiexpKernel<'a, G>, GPULock<'a>)>
 where
     G: PrimeCurveAffine + GpuName,
 {
@@ -228,14 +233,6 @@ where
             devices.push(*device);
         }
     }
-
-    /*
-    let devices = lock
-        .0
-        .iter()
-        .map(|LockInfo { devices, .. }| devices)
-        .collect::<Vec<&Device>>();
-    */
 
     let kernel = if priority {
         CpuGpuMultiexpKernel::create_with_abort(&devices[..], &|| -> bool {
@@ -273,7 +270,7 @@ macro_rules! locked_kernel {
             priority: bool,
             // Keep the GPU lock alongside the kernel, so that the lock is automatically dropped
             // if the kernel is dropped.
-            kernel_and_lock: Option<($kern<'a, E>, GPULock<'a>)>,
+            kernel_and_lock: Option<($kernel, GPULock<'a>)>,
         }
 
         impl<'a, $generic> $class<$lifetime, $generic>
@@ -295,7 +292,7 @@ macro_rules! locked_kernel {
                 if self.kernel_and_lock.is_none() {
                     PriorityLock::wait(self.priority);
                     info!("GPU is available for {}!", $name);
-                    if let Some((kernel, lock)) = $func::<E>(self.priority) {
+                    if let Some((kernel, lock)) = $func(self.priority) {
                         self.kernel_and_lock = Some((kernel, lock));
                     }
                 }
