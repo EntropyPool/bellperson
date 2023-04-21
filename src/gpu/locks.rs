@@ -2,7 +2,7 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use ec_gpu_gen::fft::FftKernel;
-use ec_gpu_gen::rust_gpu_tools::Device;
+use ec_gpu_gen::rust_gpu_tools::{Device, UniqueId};
 use ff::Field;
 use fs2::FileExt;
 use group::prime::PrimeCurveAffine;
@@ -13,31 +13,107 @@ use crate::gpu::{CpuGpuMultiexpKernel, GpuName};
 
 const GPU_LOCK_NAME: &str = "bellman.gpu.lock";
 const PRIORITY_LOCK_NAME: &str = "bellman.priority.lock";
-fn tmp_path(filename: &str) -> PathBuf {
+
+fn tmp_path(filename: &str, id: Option<UniqueId>) -> PathBuf {
     let mut p = std::env::temp_dir();
-    p.push(filename);
+    let mut tmpfile = filename.to_owned();
+    if let Some(id_str) = id {
+        tmpfile.push_str(&(".".to_owned() + &id_str.to_string()));
+    }
+    p.push(tmpfile);
     p
+}
+
+#[derive(Debug)]
+struct LockInfo<'a> {
+    file: Option<File>,
+    path: Option<PathBuf>,
+    devices: Vec<&'a Device>,
 }
 
 /// `GPULock` prevents two kernel objects to be instantiated simultaneously.
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
-pub struct GPULock(File);
-impl GPULock {
-    pub fn lock() -> GPULock {
-        let gpu_lock_file = tmp_path(GPU_LOCK_NAME);
-        debug!("Acquiring GPU lock at {:?} ...", &gpu_lock_file);
-        let f = File::create(&gpu_lock_file)
-            .unwrap_or_else(|_| panic!("Cannot create GPU lock file at {:?}", &gpu_lock_file));
-        f.lock_exclusive().unwrap();
+pub struct GPULock<'a>(Vec<LockInfo<'a>>);
+
+impl GPULock<'_> {
+    pub fn lock() -> Self {
+        if let Ok(val) = std::env::var("BELLPERSON_GPUS_PER_LOCK") {
+            match val.parse::<usize>() {
+                Ok(val) if val > 0 => {
+                    let devices = Device::all();
+                    info!(
+                        "BELLPERSON_GPUS_PER_LOCK == {}, try lock {}/{} gpus",
+                        val,
+                        val,
+                        devices.len(),
+                    );
+
+                    let mut locks = Vec::new();
+                    for (index, device) in devices.iter().enumerate() {
+                        let uid = device.unique_id();
+                        let path = tmp_path(GPU_LOCK_NAME, Some(uid));
+                        debug!("Acquiring GPU lock {}/{} at {:?} ...", index, val, &path);
+                        let file = File::create(&path).unwrap_or_else(|_| {
+                            panic!("Cannot create GPU {:?} lock file at {:?}", uid, &path)
+                        });
+                        if file.try_lock_exclusive().is_err() {
+                            continue;
+                        }
+                        debug!("GPU lock acquired at {:?}", path);
+                        locks.push(LockInfo {
+                            file: Some(file),
+                            path: Some(path),
+                            devices: vec![device],
+                        });
+                        if locks.len() >= val {
+                            break;
+                        }
+                    }
+
+                    return GPULock(locks);
+                }
+                Ok(val) if val == 0 => {
+                    info!("BELLPERSON_GPUS_PER_LOCK == 0, free to use gpus");
+                    return GPULock(vec![LockInfo {
+                        file: None,
+                        path: None,
+                        devices: Device::all(),
+                    }]);
+                }
+                _ => warn!("BELLPERSON_GPUS_PER_LOCK parse fail, use all gpus"),
+            };
+        }
+
+        info!("BELLPERSON_GPUS_PER_LOCK fallback to single lock mode");
+
+        // Fallback to create single lock
+        let path = tmp_path(GPU_LOCK_NAME, None);
+        debug!("Acquiring GPU lock at {:?} ...", &path);
+        let file = File::create(&path).unwrap_or_else(|_| {
+            panic!("Cannot create GPU lock file at {:?}", &path);
+        });
+        file.lock_exclusive().unwrap();
         debug!("GPU lock acquired!");
-        GPULock(f)
+        GPULock(vec![LockInfo {
+            file: Some(file),
+            path: Some(path),
+            devices: Device::all(),
+        }])
     }
 }
-impl Drop for GPULock {
+
+impl Drop for GPULock<'_> {
     fn drop(&mut self) {
-        self.0.unlock().unwrap();
-        debug!("GPU lock released!");
+        for lock_info in &self.0 {
+            if let Some(file) = &lock_info.file {
+                file.unlock().unwrap();
+                debug!(
+                    "GPU lock released at {:?}",
+                    lock_info.path.as_ref().unwrap(),
+                );
+            }
+        }
     }
 }
 
@@ -49,7 +125,7 @@ impl Drop for GPULock {
 pub struct PriorityLock(File);
 impl PriorityLock {
     pub fn lock() -> PriorityLock {
-        let priority_lock_file = tmp_path(PRIORITY_LOCK_NAME);
+        let priority_lock_file = tmp_path(PRIORITY_LOCK_NAME, None);
         debug!("Acquiring priority lock at {:?} ...", &priority_lock_file);
         let f = File::create(&priority_lock_file).unwrap_or_else(|_| {
             panic!(
@@ -64,7 +140,8 @@ impl PriorityLock {
 
     pub fn wait(priority: bool) {
         if !priority {
-            if let Err(err) = File::create(tmp_path(PRIORITY_LOCK_NAME))
+            info!("priority lock {:?}", tmp_path(PRIORITY_LOCK_NAME, None));
+            if let Err(err) = File::create(tmp_path(PRIORITY_LOCK_NAME, None))
                 .unwrap()
                 .lock_exclusive()
             {
@@ -77,7 +154,7 @@ impl PriorityLock {
         if priority {
             return false;
         }
-        if let Err(err) = File::create(tmp_path(PRIORITY_LOCK_NAME))
+        if let Err(err) = File::create(tmp_path(PRIORITY_LOCK_NAME, None))
             .unwrap()
             .try_lock_shared()
         {
@@ -99,30 +176,39 @@ impl Drop for PriorityLock {
     }
 }
 
-fn create_fft_kernel<'a, F>(priority: bool) -> Option<FftKernel<'a, F>>
+fn create_fft_kernel<'a, E>(priority: bool) -> Option<(FftKernel<'a, E>, GPULock<'a>)>
 where
     F: Field + GpuName,
 {
-    let devices = Device::all();
-    let programs = devices
+    let lock = GPULock::lock();
+    let mut devices = Vec::new();
+    for lock_info in &lock.0 {
+        for device in &lock_info.devices {
+            devices.push(*device);
+        }
+    }
+
+    /*
+    let devices = lock
+        .0
         .iter()
-        .map(|device| ec_gpu_gen::program!(device))
-        .collect::<Result<_, _>>()
-        .ok()?;
+        .map(|LockInfo { devices, .. }| devices)
+        .collect::<Vec<&Device>>();
+    */
 
     let kernel = if priority {
-        FftKernel::create_with_abort(programs, &|| -> bool {
+        FftKernel::create_with_abort(&devices[..], &|| -> bool {
             // We only supply a function in case it is high priority, hence always passing in
             // `true`.
             PriorityLock::should_break(true)
         })
     } else {
-        FftKernel::create(programs)
+        FftKernel::create(&devices[..])
     };
     match kernel {
         Ok(k) => {
             info!("GPU FFT kernel instantiated!");
-            Some(k)
+            Some((k, lock))
         }
         Err(e) => {
             warn!("Cannot instantiate GPU FFT kernel! Error: {}", e);
@@ -131,24 +217,39 @@ where
     }
 }
 
-fn create_multiexp_kernel<'a, G>(priority: bool) -> Option<CpuGpuMultiexpKernel<'a, G>>
+fn create_multiexp_kernel<'a, E>(priority: bool) -> Option<(CpuGpuMultiexpKernel<'a, E>, GPULock<'a>)>
 where
     G: PrimeCurveAffine + GpuName,
 {
-    let devices = Device::all();
+    let lock = GPULock::lock();
+    let mut devices = Vec::new();
+    for lock_info in &lock.0 {
+        for device in &lock_info.devices {
+            devices.push(*device);
+        }
+    }
+
+    /*
+    let devices = lock
+        .0
+        .iter()
+        .map(|LockInfo { devices, .. }| devices)
+        .collect::<Vec<&Device>>();
+    */
+
     let kernel = if priority {
-        CpuGpuMultiexpKernel::create_with_abort(&devices, &|| -> bool {
+        CpuGpuMultiexpKernel::create_with_abort(&devices[..], &|| -> bool {
             // We only supply a function in case it is high priority, hence always passing in
             // `true`.
             PriorityLock::should_break(true)
         })
     } else {
-        CpuGpuMultiexpKernel::create(&devices)
+        CpuGpuMultiexpKernel::create(&devices[..])
     };
     match kernel {
         Ok(k) => {
             info!("GPU Multiexp kernel instantiated!");
-            Some(k)
+            Some((k, lock))
         }
         Err(e) => {
             warn!("Cannot instantiate GPU Multiexp kernel! Error: {}", e);
@@ -172,7 +273,7 @@ macro_rules! locked_kernel {
             priority: bool,
             // Keep the GPU lock alongside the kernel, so that the lock is automatically dropped
             // if the kernel is dropped.
-            kernel_and_lock: Option<($kernel, GPULock)>,
+            kernel_and_lock: Option<($kern<'a, E>, GPULock<'a>)>,
         }
 
         impl<'a, $generic> $class<$lifetime, $generic>
@@ -194,8 +295,8 @@ macro_rules! locked_kernel {
                 if self.kernel_and_lock.is_none() {
                     PriorityLock::wait(self.priority);
                     info!("GPU is available for {}!", $name);
-                    if let Some(kernel) = $func(self.priority) {
-                        self.kernel_and_lock = Some((kernel, GPULock::lock()));
+                    if let Some((kernel, lock)) = $func::<E>(self.priority) {
+                        self.kernel_and_lock = Some((kernel, lock));
                     }
                 }
             }
